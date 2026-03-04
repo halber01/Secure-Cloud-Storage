@@ -1,0 +1,16 @@
+[package]
+name = "shared"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1.50.0", features = ["full"] }
+bincode = "2.0.0"
+serde = { version = "1.0.228", features = ["derive"] }
+aes-gcm = "0.10.3"
+argon2 = "0.5.3"
+hkdf = "0.12.4"
+sha2 = "0.10.9"
+ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
+hmac = "0.12.1"
+thiserror = "2.0.18"
