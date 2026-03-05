@@ -1,0 +1,103 @@
+use serde::{Serialize, Deserialize};
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Message {
+    Register(Register),
+    RegisterOk,
+    RequestChallenge(RequestChallenge),
+    Challenge(Challenge),
+    Login(Login),
+    LoginOk(LoginOk),
+    Upload(Upload),
+    UploadOk,
+    List(List),
+    ListResponse(ListResponse),
+    Download(Download),
+    DownloadResponse(DownloadResponse),
+    Delete(Delete),
+    DeleteOk,
+    Error(Error),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Register {
+    pub username: String,
+    pub salt: String,
+    pub public_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestChallenge {
+    pub username: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Challenge {
+    pub nonce: Vec<u8>,
+    pub salt: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Login {
+    pub username: String,
+    pub signature: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoginOk {
+    pub session_token: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Upload {
+    pub session_token: Vec<u8>,
+    pub file_id: Vec<u8>,
+    pub ciphertext: Vec<u8>,
+    pub encrypted_metadata: Vec<u8>,
+    pub version: u64,
+    pub signature: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct List {
+    pub session_token: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListResponse {
+    pub list: Vec<FileEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileEntry {
+    pub file_id: Vec<u8>,
+    pub encrypted_metadata: Vec<u8>,
+    pub version: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Download {
+    pub session_token: Vec<u8>,
+    pub file_id: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadResponse {
+    pub ciphertext: Vec<u8>,
+    pub encrypted_metadata: Vec<u8>,
+    pub version: u64,
+    pub signature: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Delete {
+    pub session_token: Vec<u8>,
+    pub file_id: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Error {
+    pub code: u8,
+    pub message: String,
+}
