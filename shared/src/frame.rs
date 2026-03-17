@@ -1,8 +1,7 @@
 use tokio::io::AsyncWriteExt;
 use tokio::io::AsyncReadExt;
+use crate::constants::*;
 
-
-const MAX_FRAME_SIZE: usize = 16 * 1024 * 1024; // 16MB
 pub async fn send_frame<S>(stream: &mut S, msg_type: u8, payload: &[u8]) -> Result<(), std::io::Error>
 where
     S: AsyncWriteExt + Unpin,
