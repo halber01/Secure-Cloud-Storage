@@ -116,9 +116,9 @@ mod tests {
     #[test]
     fn test_subkey_domain_separation() {
         let master = [0u8; 32];
-        let enc_key  = derive_subkey(&master, b"enc-key-v1");
-        let mac_key  = derive_subkey(&master, b"mac-key-v1");
-        let meta_key = derive_subkey(&master, b"meta-key-v1");
+        let enc_key  = derive_subkey(&master, HKDF_ENC_LABEL);
+        let mac_key  = derive_subkey(&master, HKDF_MAC_LABEL);
+        let meta_key = derive_subkey(&master, HKDF_META_LABEL);
         assert_ne!(enc_key, mac_key);
         assert_ne!(mac_key, meta_key);
         assert_ne!(enc_key, meta_key);

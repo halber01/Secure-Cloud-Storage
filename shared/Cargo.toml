@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 tokio = { version = "1.50.0", features = ["full"] }
-bincode = "2.0.0"
+bincode = { version = "2", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 aes-gcm ={ version = "0.10.3", features = ["aes"] }
 argon2 = "0.5.3"
