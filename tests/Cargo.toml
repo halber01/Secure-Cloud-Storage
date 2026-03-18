@@ -1,0 +1,15 @@
+[package]
+name = "tests"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "tests"
+path = "src/lib.rs"
+
+[dependencies]
+shared = { path = "../shared" }
+server = { path = "../server" }
+client = { path = "../client" }
+tokio = { version = "1", features = ["full"] }
+bincode = { version = "2", features = ["serde"] }
