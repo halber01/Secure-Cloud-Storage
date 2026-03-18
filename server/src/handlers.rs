@@ -27,18 +27,21 @@ fn error(code: u8, msg: &str) -> Message {
 }
 
 fn handle_register(req: Register, store: &Store) -> Message {
-    if store.register_user(req.username, UserRecord {
+    if store.register_user(req.username.clone(), UserRecord {
         salt: req.salt,
         public_key: req.public_key,
     }) {
+        println!("[REGISTER] New user: '{}'", req.username);
         Message::RegisterOk
     } else {
+        println!("[REGISTER] Failed - user exists: '{}'", req.username);
         error(0x02, "Username already exists")
     }
 }
 
 fn handle_challenge(req: RequestChallenge, store: &Store) -> Message {
     // User must exist before we issue a challenge
+    println!("[CHALLENGE] Issued for user: '{}'", req.username);
     let user = match store.get_user(&req.username) {
         Some(u) => u,
         None => return error(0x03, "User not found"),
@@ -101,6 +104,11 @@ fn handle_upload(req: Upload, store: &Store) -> Message {
         return error(0x04, "Invalid signature");
     }
 
+    println!("[UPLOAD] user='{}' file_id='{}' version={}",
+             username,
+             hex::encode(&req.file_id),
+             req.version
+    );
     // Store — put_file enforces version monotonicity
     match store.put_file(username, req.file_id, FileRecord {
         ciphertext: req.ciphertext,
@@ -137,7 +145,10 @@ fn handle_download(req: Download, store: &Store) -> Message {
         Some(u) => u,
         None => return error(0x01, "Unauthorized"),
     };
-
+    println!("[DOWNLOAD] user='{}' file_id='{}'",
+             username,
+             hex::encode(&req.file_id)
+    );
     match store.get_file(&username, &req.file_id) {
         Some(rec) => Message::DownloadResponse(DownloadResponse {
             ciphertext: rec.ciphertext,
