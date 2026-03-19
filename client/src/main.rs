@@ -28,7 +28,10 @@ enum Commands {
 async fn main() {
     let cli = Cli::parse();
 
-    let mut stream = ops::connect(&cli.server).await.unwrap();
+    let mut stream = match ops::connect(&cli.server).await {
+        Ok(s) => s,
+        Err(e) => { eprintln!("Could not connect to server: {}", e); return; }
+    };
     match cli.command {
         Commands::Register { username } => {
             let password = rpassword::prompt_password("Password: ").unwrap();
@@ -86,7 +89,10 @@ async fn prompt_and_login(
 ) -> Option<ops::Session> {
     let password = rpassword::prompt_password("Password: ").unwrap();
     match ops::login(stream, username, &password).await {
-        Ok(session) => Some(session),
+        Ok(session) => {
+            println!("Logged in as '{}'", session.username);
+            Some(session)
+        },
         Err(e) => {
             eprintln!("Login failed: {}", e);
             None

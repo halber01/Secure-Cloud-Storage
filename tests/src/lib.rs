@@ -80,7 +80,7 @@ mod tests {
         upload(&mut client, &session, &tmp, "test.txt", 1).await.unwrap();
 
         // login again for fresh session
-        let (mut client2, mut server2) = duplex(65536);
+        let (_client2, _server2) = duplex(65536);
         // reuse same store via re-login
         let session2 = login(&mut client, "alice", "password123").await.unwrap();
 

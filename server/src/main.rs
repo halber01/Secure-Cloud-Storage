@@ -4,7 +4,6 @@ mod config;
 
 use std::sync::Arc;
 use rustls::ServerConfig;
-use rustls::pki_types::PrivateKeyDer;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use store::Store;
@@ -72,7 +71,7 @@ where
 {
     loop {
         // Read one frame
-        let (msg_type, payload) = match recv_frame(&mut stream).await {
+        let (_msg_type, payload) = match recv_frame(&mut stream).await {
             Ok(f) => f,
             Err(_) => break, // client disconnected
         };
@@ -119,7 +118,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::messages::*;
     use tokio::io::duplex;
 
     #[tokio::test]

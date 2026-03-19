@@ -25,7 +25,7 @@ pub fn derive_master_key(password: &str, salt: &[u8]) -> Result<[u8; KEY_LEN], S
     Ok(key)
 }
 
-// ── 3. Subkey derivation ─────────────────────────────────────────
+// Subkey derivation
 
 /// Derives a 32-byte subkey from master_key using HKDF-SHA256.
 pub fn derive_subkey(master_key: &[u8], label: &[u8]) -> [u8; KEY_LEN] {
@@ -35,7 +35,7 @@ pub fn derive_subkey(master_key: &[u8], label: &[u8]) -> [u8; KEY_LEN] {
     okm
 }
 
-// ── 4. File ID ───────────────────────────────────────────────────
+// File ID
 
 /// Computes a deterministic file ID: HMAC-SHA256(mac_key, filename)
 /// Server sees only encrypted filename
@@ -46,7 +46,7 @@ pub fn compute_file_id(mac_key: &[u8], filename: &str) -> Vec<u8> {
     mac.finalize().into_bytes().to_vec()
 }
 
-// ── 5. Encrypt ───────────────────────────────────────────────────
+// Encrypt
 
 /// Encrypts plaintext with AES-256-GCM
 /// Returns: nonce (12 bytes) || ciphertext || tag (16 bytes)
@@ -63,7 +63,7 @@ pub fn encrypt(key: &[u8; KEY_LEN], plaintext: &[u8]) -> Result<Vec<u8>, String>
     Ok(output)
 }
 
-// ── 6. Decrypt ───────────────────────────────────────────────────
+// Decrypt
 
 /// Decrypts a blob produced by encrypt().
 /// Splits off the first 12 bytes as nonce, decrypts the rest.

@@ -70,6 +70,7 @@ impl Store {
         self.sessions.read().unwrap().get(token).cloned()
     }
 
+    #[allow(dead_code)]
     pub fn delete_session(&self, token: &[u8]) {
         self.sessions.write().unwrap().remove(token);
     }

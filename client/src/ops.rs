@@ -229,6 +229,10 @@ where
     let plaintext = std::fs::read(local_path)
         .map_err(|e| e.to_string())?;
 
+    if plaintext.len() > MAX_FRAME_SIZE - 1000 {
+        return Err("File too large — maximum 16MB in v1".to_string());
+    }
+
     // Compute file_id = HMAC(mac_key, filename) — hides filename from server
     let file_id = compute_file_id(&session.mac_key, remote_name);
 
