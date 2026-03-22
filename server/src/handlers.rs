@@ -47,7 +47,7 @@ fn handle_challenge(req: RequestChallenge, store: &Store) -> Message {
         None => return error(0x03, "User not found"),
     };
 
-    // Generate a fresh random nonce — one time use
+    // Generate a fresh random nonce. Only one time use
     let mut nonce = vec![0u8; 32];
     OsRng.fill_bytes(&mut nonce);
     store.store_challenge(req.username, nonce.clone());
@@ -109,7 +109,7 @@ fn handle_upload(req: Upload, store: &Store) -> Message {
              hex::encode(&req.file_id),
              req.version
     );
-    // Store — put_file enforces version monotonicity
+    // Store: put_file enforces version monotonicity
     match store.put_file(username, req.file_id, FileRecord {
         ciphertext: req.ciphertext,
         encrypted_metadata: req.encrypted_metadata,
@@ -206,7 +206,7 @@ mod tests {
     use ed25519_dalek::{SigningKey, Signer};
     use crate::store::Store;
 
-    /// Helper — registers alice and returns her signing key
+    /// Helper: registers alice and returns her signing key
     fn setup_alice(store: &Store) -> SigningKey {
         let signing_key = SigningKey::generate(&mut OsRng);
         let public_key = signing_key.verifying_key().to_bytes().to_vec();
@@ -217,7 +217,7 @@ mod tests {
         signing_key
     }
 
-    /// Helper — logs alice in and returns her session token
+    /// Helper: logs alice in and returns her session token
     async fn login_alice(store: &Store, signing_key: &SigningKey) -> Vec<u8> {
         // get challenge
         let resp = handle(Message::RequestChallenge(RequestChallenge {

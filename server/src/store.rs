@@ -55,7 +55,7 @@ impl Store {
         self.challenges.write().unwrap().insert(username, nonce);
     }
 
-    /// Take consumes the challenge — prevents replay attacks
+    /// Take consumes the challenge. Prevents replay attacks
     pub fn take_challenge(&self, username: &str) -> Option<Vec<u8>> {
         self.challenges.write().unwrap().remove(username)
     }

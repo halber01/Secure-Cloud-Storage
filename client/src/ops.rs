@@ -233,7 +233,7 @@ where
         return Err("File too large — maximum 16MB in v1".to_string());
     }
 
-    // Compute file_id = HMAC(mac_key, filename) — hides filename from server
+    // Compute file_id = HMAC(mac_key, filename): hides filename from server
     let file_id = compute_file_id(&session.mac_key, remote_name);
 
     // Derive per-file key and encrypt content
@@ -292,7 +292,7 @@ where
         _ => return Err("Unexpected response".to_string()),
     };
 
-    // Verify signature — proves server didn't tamper with the file
+    // Verify signature: proves server didn't tamper with the file
     let mut sign_msg = Vec::new();
     sign_msg.extend_from_slice(&file_id);
     sign_msg.extend_from_slice(&resp.version.to_le_bytes());
