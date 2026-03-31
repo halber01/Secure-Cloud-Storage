@@ -103,7 +103,7 @@ async fn main() {
                     if files.is_empty() {
                         println!("No files stored.");
                     } else {
-                        println!("{:<40} {}", "Filename", "Version");
+                        println!("{:<40} Version", "Filename");
                         println!("{}", "-".repeat(50));
                         for (name, version) in files {
                             println!("{:<40} v{}", name, version);

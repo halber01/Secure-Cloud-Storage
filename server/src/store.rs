@@ -86,13 +86,13 @@ impl Store {
     ) -> Result<(), String> {
         let mut files = self.files.write().unwrap();
         let key = (username, file_id);
-        if let Some(existing) = files.get(&key) {
-            if record.version <= existing.version {
-                return Err(format!(
-                    "Version rollback rejected: got {}, have {}",
-                    record.version, existing.version
-                ));
-            }
+        if let Some(existing) = files.get(&key)
+            && record.version <= existing.version
+        {
+            return Err(format!(
+                "Version rollback rejected: got {}, have {}",
+                record.version, existing.version
+            ));
         }
         files.insert(key, record);
         Ok(())

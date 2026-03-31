@@ -27,7 +27,7 @@ where
     let mut length_buf = [0u8; 4];
     stream.read_exact(&mut length_buf).await?;
     let length = u32::from_be_bytes(length_buf) as usize;
-    if length < 1 || length > MAX_FRAME_SIZE {
+    if !(1..=MAX_FRAME_SIZE).contains(&length) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "Frame length out of bounds",
