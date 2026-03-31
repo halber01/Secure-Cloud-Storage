@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use shared::messages::*;
     use tokio::io::duplex;
     use client::ops::{download, list, login, register, upload};
@@ -23,17 +24,41 @@ mod tests {
         send_frame(server, type_byte, &resp_payload).await.unwrap();
     }
 
+    async fn try_server_respond(
+        server: &mut (impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin),
+        store: &Store
+    ) -> Result<(), String> {
+        let (_, payload) = recv_frame(server).await.map_err(|e| e.to_string())?;
+        let (msg, _): (Message, usize) = bincode::serde::decode_from_slice(
+            &payload,
+            bincode::config::standard()
+        ).map_err(|e| e.to_string())?;
+        let response = handlers::handle(msg, store).await;
+        let type_byte = response.type_byte();
+        let resp_payload = bincode::serde::encode_to_vec(
+            &response,
+            bincode::config::standard()
+        ).map_err(|e| e.to_string())?;
+        send_frame(server, type_byte, &resp_payload).await.map_err(|e| e.to_string())
+    }
+
+    fn start_test_server(store: Arc<Store>) -> impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin {
+        let (client_end, mut server_end) = tokio::io::duplex(65536);
+        tokio::spawn(async move {
+            loop {
+                match try_server_respond(&mut server_end, &store).await {
+                    Ok(()) => continue,
+                    Err(_) => break,
+                }
+            }
+        });
+        client_end
+    }
+
     #[tokio::test]
     async fn test_register_login_roundtrip() {
-        let store = Store::new();
-        let (mut client, mut server) = duplex(65536);
-
-        // register
-        tokio::spawn(async move {
-            server_respond(&mut server, &store).await; // register
-            server_respond(&mut server, &store).await; // challenge
-            server_respond(&mut server, &store).await; // login
-        });
+        let store = Arc::new(Store::new());
+        let mut client = start_test_server(Arc::clone(&store));
 
         register(&mut client, "alice", "password123").await.unwrap();
         let session = login(&mut client, "alice", "password123").await.unwrap();
@@ -42,14 +67,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_wrong_password_fails() {
-        let store = Store::new();
-        let (mut client, mut server) = duplex(65536);
-
-        tokio::spawn(async move {
-            server_respond(&mut server, &store).await; // register
-            server_respond(&mut server, &store).await; // challenge
-            server_respond(&mut server, &store).await; // login attempt
-        });
+        let store = Arc::new(Store::new());
+        let mut client = start_test_server(Arc::clone(&store));
 
         register(&mut client, "alice", "correctpassword").await.unwrap();
         let result = login(&mut client, "alice", "wrongpassword").await;
@@ -58,15 +77,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_upload_download_roundtrip() {
-        let store = Store::new();
-        let (mut client, mut server) = duplex(65536);
-
-        // server handles: register, challenge, login, upload, challenge, login, download
-        tokio::spawn(async move {
-            for _ in 0..7 {
-                server_respond(&mut server, &store).await;
-            }
-        });
+        let store = Arc::new(Store::new());
+        let mut client = start_test_server(Arc::clone(&store));
 
         // register and login
         register(&mut client, "alice", "password123").await.unwrap();
@@ -98,14 +110,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_shows_decrypted_filenames() {
-        let store = Store::new();
-        let (mut client, mut server) = duplex(65536);
-
-        tokio::spawn(async move {
-            for _ in 0..5 { // register, challenge, login, upload, list
-                server_respond(&mut server, &store).await;
-            }
-        });
+        let store = Arc::new(Store::new());
+        let mut client = start_test_server(Arc::clone(&store));
 
         register(&mut client, "alice", "password123").await.unwrap();
         let session = login(&mut client, "alice", "password123").await.unwrap();
