@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-
 type FileStore = Arc<RwLock<HashMap<(String, Vec<u8>), FileRecord>>>;
 
 // Data records
@@ -36,8 +35,6 @@ impl Store {
             challenges: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-
-
 
     // Users
     /// Returns false if username already exists
