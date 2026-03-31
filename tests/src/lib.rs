@@ -77,7 +77,7 @@ mod tests {
         std::fs::write(&tmp, b"secret file contents").unwrap();
 
         // upload
-        upload(&mut client, &session, &tmp, "test.txt", 1).await.unwrap();
+        upload(&mut client, &session, &tmp, "test.txt").await.unwrap();
 
         // login again for fresh session
         let (_client2, _server2) = duplex(65536);
@@ -112,7 +112,7 @@ mod tests {
 
         let tmp = std::env::temp_dir().join("list_test.txt");
         std::fs::write(&tmp, b"data").unwrap();
-        upload(&mut client, &session, &tmp, "myfile.txt", 1).await.unwrap();
+        upload(&mut client, &session, &tmp, "myfile.txt").await.unwrap();
 
         let files = list(&mut client, &session).await.unwrap();
         assert_eq!(files.len(), 1);

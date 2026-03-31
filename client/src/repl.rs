@@ -1,17 +1,68 @@
-use std::path::Path;
 use rustyline::Editor;
 use rustyline::error::ReadlineError;
-use crate::ops;
-use crate::ops::Session;
+use rustyline::completion::{Completer, FilenameCompleter, Pair};
+use rustyline::highlight::Highlighter;
+use rustyline::hint::Hinter;
+use rustyline::validate::Validator;
+use rustyline::{CompletionType, Config, Context, Helper};
+use crate::ops::{self, Session};
+use std::path::Path;
+
+// Helper
+
+struct CloudHelper {
+    completer: FilenameCompleter,
+}
+
+impl Helper for CloudHelper {}
+impl Highlighter for CloudHelper {}
+impl Hinter for CloudHelper {
+    type Hint = String;
+}
+impl Validator for CloudHelper {}
+
+impl Completer for CloudHelper {
+    type Candidate = Pair;
+
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        ctx: &Context<'_>,
+    ) -> rustyline::Result<(usize, Vec<Pair>)> {
+        // only complete after upload/download/cd commands
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("upload")
+            || trimmed.starts_with("cd")
+            || trimmed.starts_with("download")
+        {
+            self.completer.complete(line, pos, ctx)
+        } else {
+            Ok((0, vec![]))
+        }
+    }
+}
 
 pub async fn run<S>(stream: &mut S, session: &Session)
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let mut rl = Editor::<(), _>::new().unwrap();
-    let prompt = format!("{} > ", session.username);
+    let config = Config::builder()
+        .completion_type(CompletionType::List)
+        .build();
+
+    let helper = CloudHelper {
+        completer: FilenameCompleter::new(),
+    };
+
+    let mut rl = Editor::with_config(config).unwrap();
+    rl.set_helper(Some(helper));
 
     loop {
+        let current_dir = std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| ".".to_string());
+        let prompt = format!("{} [{}] > ", session.username, current_dir);
         match rl.readline(&prompt) {
             Ok(line) => {
                 rl.add_history_entry(&line).expect("TODO: panic message");
@@ -56,7 +107,32 @@ where
                             Err(e) => eprintln!("Upload failed: {}", e),
                         }
                     }
-
+                    ["ls"] => {
+                        match std::fs::read_dir(".") {
+                            Ok(entries) => {
+                                let mut names: Vec<String> = entries
+                                    .flatten()
+                                    .map(|e| e.file_name().to_string_lossy().to_string())
+                                    .collect();
+                                names.sort();
+                                for name in names {
+                                    println!("{}", name);
+                                }
+                            }
+                            Err(e) => eprintln!("ls failed: {}", e),
+                        }
+                    }
+                    ["pwd"] => {
+                        match std::env::current_dir() {
+                            Ok(path) => println!("{}", path.display()),
+                            Err(e) => eprintln!("pwd failed: {}", e),
+                        }
+                    }
+                    ["cd", path] => {
+                        if let Err(e) = std::env::set_current_dir(path) {
+                            eprintln!("cd failed: {}", e);
+                        }
+                    }
                     _ => eprintln!("Unknown command. Type 'help'."),
                 }
             }
@@ -71,9 +147,12 @@ where
 
 fn print_help() {
     println!("Commands:");
-    println!("  upload <local_path> [remote_name]  Upload a file");
+    println!("  upload <local_path> [remote_name]   Upload a file");
     println!("  download <remote_name> [local_path] Download a file");
-    println!("  list                               List all files");
-    println!("  delete <remote_name>               Delete a file");
-    println!("  logout / exit / quit               Exit the shell");
+    println!("  list                                List all files");
+    println!("  delete <remote_name>                Delete a file");
+    println!("  ls                                  List local files");
+    println!("  pwd                                 Show current directory");
+    println!("  cd <path>                           Change directory");
+    println!("  logout / exit / quit                Exit the shell");
 }
