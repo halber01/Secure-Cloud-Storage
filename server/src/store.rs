@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+
+type FileStore = Arc<RwLock<HashMap<(String, Vec<u8>), FileRecord>>>;
+
 // Data records
 #[derive(Clone)]
 pub struct UserRecord {
@@ -19,7 +22,7 @@ pub struct FileRecord {
 #[derive(Clone)]
 pub struct Store {
     users: Arc<RwLock<HashMap<String, UserRecord>>>,
-    files: Arc<RwLock<HashMap<(String, Vec<u8>), FileRecord>>>,
+    files: FileStore,
     sessions: Arc<RwLock<HashMap<Vec<u8>, String>>>,
     challenges: Arc<RwLock<HashMap<String, Vec<u8>>>>,
 }
@@ -33,6 +36,8 @@ impl Store {
             challenges: Arc::new(RwLock::new(HashMap::new())),
         }
     }
+
+
 
     // Users
     /// Returns false if username already exists
@@ -123,6 +128,11 @@ impl Store {
             .filter(|((u, _), _)| u == username)
             .map(|((_, fid), rec)| (fid.clone(), rec.encrypted_metadata.clone(), rec.version))
             .collect()
+    }
+}
+impl Default for Store {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
