@@ -80,6 +80,12 @@ pub fn decrypt(key: &[u8; KEY_LEN], blob: &[u8]) -> Result<Vec<u8>, String> {
         .map_err(|_| "Decryption failed — wrong key or tampered data".to_string())
 }
 
+/// Build the canonical message for a delete:
+/// "delete:" || file_id
+pub fn delete_sign_message(file_id: &[u8]) -> Vec<u8> {
+    [b"delete:".as_slice(), file_id].concat()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

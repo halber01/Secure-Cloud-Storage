@@ -93,7 +93,7 @@ where
                     }
                     ["upload", local, remote] => {
                         match ops::upload(stream, session, Path::new(local), remote).await {
-                            Ok(()) => println!("✓ Uploaded '{}' as '{}'", local, remote),
+                            Ok(()) => println!("Uploaded '{}' as '{}'", local, remote),
                             Err(e) => eprintln!("Upload failed: {}", e),
                         }
                     }
@@ -105,6 +105,30 @@ where
                         match ops::upload(stream, session, Path::new(local), &remote).await {
                             Ok(()) => println!("✓ Uploaded '{}'", local),
                             Err(e) => eprintln!("Upload failed: {}", e),
+                        }
+                    }
+                    ["download", remote, local] => {
+                        match ops::download(stream, session, remote, Path::new(local)).await {
+                            Ok(()) => println!("Downloadded '{}'", local),
+                            Err(e) => eprintln!("Download failed: {}", e),
+                        }
+                    }
+                    ["download", remote] => {
+                        match ops::download(stream, session, remote, Path::new(remote)).await {
+                            Ok(()) => println!("Downloaded '{}'", remote),
+                            Err(e) => eprintln!("Download failed: {}", e),
+                        }
+                    }
+                    ["delete", remote] => {
+                        println!("Are you sure you want to delete '{}'? [y/n]", remote);
+                        match rl.readline("") {
+                            Ok(resp) if resp.trim() == "y" => {
+                                match ops::delete_file(stream, session, remote).await {
+                                    Ok(()) => println!("Deleted '{}'", remote),
+                                    Err(e) => eprintln!("Delete failed: {}", e),
+                                }
+                            }
+                            _ => println!("Cancelled."),
                         }
                     }
                     ["ls"] => {

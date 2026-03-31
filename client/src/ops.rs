@@ -358,6 +358,32 @@ where
     Ok(files)
 }
 
+
+pub async fn delete_file<S>(
+    stream: &mut S,
+    session: &Session,
+    remote_name: &str,
+) -> Result<(), String>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let file_id = compute_file_id(&session.mac_key, remote_name);
+    let msg = delete_sign_message(&file_id);
+    let signature = session.signing_key.sign(&msg).to_bytes().to_vec();
+
+    send_msg(stream, Message::Delete(Delete {
+        session_token: session.session_token.clone(),
+        file_id,
+        signature,
+    })).await?;
+
+    match recv_msg(stream).await? {
+        Message::DeleteOk => Ok(()),
+        Message::Error(e) => Err(e.message),
+        _ => Err("Unexpected response".to_string()),
+    }
+}
+
 pub async fn fetch_current_version<S>(
     stream: &mut S,
     session: &Session,
