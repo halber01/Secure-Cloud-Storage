@@ -129,4 +129,12 @@ mod tests {
         assert_ne!(mac_key, meta_key);
         assert_ne!(enc_key, meta_key);
     }
+
+    #[test]
+    fn test_delete_sign_message() {
+        let file_id = b"abc123";
+        let msg = delete_sign_message(file_id);
+        assert!(msg.starts_with(b"delete:"));
+        assert!(msg.ends_with(file_id));
+    }
 }
