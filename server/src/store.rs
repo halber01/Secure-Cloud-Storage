@@ -18,8 +18,8 @@ pub struct FileRecord {
 
 #[derive(Clone)]
 pub struct Store {
-    users:    Arc<RwLock<HashMap<String, UserRecord>>>,
-    files:    Arc<RwLock<HashMap<(String, Vec<u8>), FileRecord>>>,
+    users: Arc<RwLock<HashMap<String, UserRecord>>>,
+    files: Arc<RwLock<HashMap<(String, Vec<u8>), FileRecord>>>,
     sessions: Arc<RwLock<HashMap<Vec<u8>, String>>>,
     challenges: Arc<RwLock<HashMap<String, Vec<u8>>>>,
 }
@@ -27,9 +27,9 @@ pub struct Store {
 impl Store {
     pub fn new() -> Self {
         Self {
-            users:      Arc::new(RwLock::new(HashMap::new())),
-            files:      Arc::new(RwLock::new(HashMap::new())),
-            sessions:   Arc::new(RwLock::new(HashMap::new())),
+            users: Arc::new(RwLock::new(HashMap::new())),
+            files: Arc::new(RwLock::new(HashMap::new())),
+            sessions: Arc::new(RwLock::new(HashMap::new())),
             challenges: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -121,13 +121,10 @@ impl Store {
             .unwrap()
             .iter()
             .filter(|((u, _), _)| u == username)
-            .map(|((_, fid), rec)| {
-                (fid.clone(), rec.encrypted_metadata.clone(), rec.version)
-            })
+            .map(|((_, fid), rec)| (fid.clone(), rec.encrypted_metadata.clone(), rec.version))
             .collect()
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -160,7 +157,10 @@ mod tests {
     #[test]
     fn test_duplicate_registration_fails() {
         let store = make_store();
-        let record = UserRecord { salt: vec![0u8; 16], public_key: vec![1u8; 32] };
+        let record = UserRecord {
+            salt: vec![0u8; 16],
+            public_key: vec![1u8; 32],
+        };
         store.register_user("alice".to_string(), record.clone());
         assert!(!store.register_user("alice".to_string(), record));
     }
@@ -176,7 +176,9 @@ mod tests {
     #[test]
     fn test_version_rollback_rejected() {
         let store = make_store();
-        store.put_file("alice".to_string(), vec![0], dummy_file(2)).unwrap();
+        store
+            .put_file("alice".to_string(), vec![0], dummy_file(2))
+            .unwrap();
         let result = store.put_file("alice".to_string(), vec![0], dummy_file(1));
         assert!(result.is_err());
     }
@@ -184,7 +186,13 @@ mod tests {
     #[test]
     fn test_version_update_accepted() {
         let store = make_store();
-        store.put_file("alice".to_string(), vec![0], dummy_file(1)).unwrap();
-        assert!(store.put_file("alice".to_string(), vec![0], dummy_file(2)).is_ok());
+        store
+            .put_file("alice".to_string(), vec![0], dummy_file(1))
+            .unwrap();
+        assert!(
+            store
+                .put_file("alice".to_string(), vec![0], dummy_file(2))
+                .is_ok()
+        );
     }
 }
