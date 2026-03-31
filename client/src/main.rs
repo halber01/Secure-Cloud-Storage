@@ -1,5 +1,6 @@
 mod ops;
 mod config;
+mod repl;
 
 use std::path::Path;
 use clap::{Parser, Subcommand};
@@ -19,9 +20,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Register { username: String },
-    Upload { username: String, local_path: String, remote_name: String, version: u64 },
-    Download { username: String, remote_name: String, local_path: String },
-    List { username: String },
+    Login { username: String },
 }
 
 #[tokio::main]
@@ -43,62 +42,19 @@ async fn main() {
                 Err(e) => eprintln!("Registration failed: {}", e),
             }
         }
-        Commands::Upload { username, local_path, remote_name, version } => {
-            let session = match prompt_and_login(&mut stream, &username).await {
-                Some(s) => s,
-                None => return,
+        Commands::Login { username } => {
+            let mut stream = match ops::connect(&addr).await {
+                Ok(s) => s,
+                Err(e) => { eprintln!("Could not connect: {}", e); return; }
             };
-            match ops::upload(&mut stream, &session, Path::new(&local_path), &remote_name, version).await {
-                Ok(()) => println!("Uploaded '{}' as '{}'", local_path, remote_name),
-                Err(e) => eprintln!("Upload failed: {}", e),
-            }
-        }
-        Commands::Download { username, remote_name, local_path } => {
-            let session = match prompt_and_login(&mut stream, &username).await {
-                Some(s) => s,
-                None => return,
-            };
-            match ops::download(&mut stream, &session, &remote_name, Path::new(&local_path)).await {
-                Ok(()) => println!("Downloaded '{}' as '{}'", local_path, remote_name),
-                Err(e) => eprintln!("Download failed: {}", e),
-            }
-        }
-        Commands::List { username } => {
-            let session = match prompt_and_login(&mut stream, &username).await {
-                Some(s) => s,
-                None => return,
-            };
-            match ops::list(&mut stream, &session).await {
-                Ok(files) => {
-                    if files.is_empty() {
-                        println!("No files stored.");
-                    } else {
-                        println!("{:<40} {}", "Filename", "Version");
-                        println!("{}", "-".repeat(50));
-                        for (name, version) in files {
-                            println!("{:<40} v{}", name, version);
-                        }
-                    }
+            let password = rpassword::prompt_password("Password: ").unwrap();
+            match ops::login(&mut stream, &username, &password).await {
+                Ok(session) => {
+                    println!("✓ Logged in as '{}'. Type 'help' for commands.", username);
+                    repl::run(&mut stream, &session).await;
                 }
-                Err(e) => eprintln!("List failed: {}", e),
+                Err(e) => eprintln!("Login failed: {}", e),
             }
-        }
-    }
-}
-
-async fn prompt_and_login(
-    stream: &mut TlsStream<TcpStream>,
-    username: &str,
-) -> Option<ops::Session> {
-    let password = rpassword::prompt_password("Password: ").unwrap();
-    match ops::login(stream, username, &password).await {
-        Ok(session) => {
-            println!("Logged in as '{}'", session.username);
-            Some(session)
-        },
-        Err(e) => {
-            eprintln!("Login failed: {}", e);
-            None
         }
     }
 }
