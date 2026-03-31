@@ -14,6 +14,7 @@ pub async fn handle(msg: Message, store: &Store) -> Message {
         Message::List(r)       => handle_list(r, store),
         Message::Download(r)   => handle_download(r, store),
         Message::Delete(r)     => handle_delete(r, store),
+        Message::GetVersion(r)   => handle_get_version(r, store),
         _ => error(0x07, "Unexpected message type"),
     }
 }
@@ -180,6 +181,18 @@ fn handle_delete(req: Delete, store: &Store) -> Message {
     } else {
         error(0x06, "File not found")
     }
+}
+
+fn handle_get_version(req: GetVersion, store: &Store) -> Message {
+    let username = match store.resolve_session(&req.session_token) {
+        Some(u) => u,
+        None => return error(0x01, "Unauthorized"),
+    };
+    let version = store
+        .get_file(&username, &req.file_id)
+        .map(|f| f.version)
+        .unwrap_or(0);
+    Message::VersionResponse(VersionResponse{ version })
 }
 
 // Signature verification helper

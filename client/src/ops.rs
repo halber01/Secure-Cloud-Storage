@@ -220,7 +220,6 @@ pub async fn upload<S>(
     session: &Session,
     local_path: &Path,
     remote_name: &str,
-    version: u64,
 ) -> Result<(), String>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -236,18 +235,22 @@ where
     // Compute file_id = HMAC(mac_key, filename): hides filename from server
     let file_id = compute_file_id(&session.mac_key, remote_name);
 
+    // fetch current version automatically
+    let current_version = fetch_current_version(stream, session, &file_id).await?;
+    let next_version = current_version + 1;
+
     // Derive per-file key and encrypt content
     let file_key = derive_subkey(&session.enc_key, &file_id);
     let ciphertext = encrypt(&file_key, &plaintext)?;
 
     // Encrypt metadata — filename stays hidden from server
-    let metadata = format!("{}:{}", remote_name, version);
+    let metadata = format!("{}:{}", remote_name, next_version);
     let encrypted_metadata = encrypt(&session.meta_key, metadata.as_bytes())?;
 
     // Sign file_id || version || ciphertext
     let mut sign_msg = Vec::new();
     sign_msg.extend_from_slice(&file_id);
-    sign_msg.extend_from_slice(&version.to_le_bytes());
+    sign_msg.extend_from_slice(&next_version.to_le_bytes());
     sign_msg.extend_from_slice(&ciphertext);
     let signature = session.signing_key.sign(&sign_msg).to_bytes().to_vec();
 
@@ -256,7 +259,7 @@ where
         file_id,
         ciphertext,
         encrypted_metadata,
-        version,
+        version: next_version,
         signature,
     })).await?;
 
@@ -353,4 +356,24 @@ where
     }
 
     Ok(files)
+}
+
+pub async fn fetch_current_version<S>(
+    stream: &mut S,
+    session: &Session,
+    file_id: &[u8],
+) -> Result<u64, String>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    send_msg(stream, Message::GetVersion(GetVersion {
+        session_token: session.session_token.clone(),
+        file_id: file_id.to_vec(),
+    })).await?;
+
+    match recv_msg(stream).await? {
+        Message::VersionResponse(r) => Ok(r.version),
+        Message::Error(e) => Err(e.message),
+        _ => Err("Unexpected response".to_string()),
+    }
 }
