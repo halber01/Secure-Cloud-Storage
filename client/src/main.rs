@@ -9,8 +9,8 @@ use tokio_rustls::client::TlsStream;
 #[derive(Parser)]
 #[command(name = "cloud", about = "Secure cloud storage client")]
 struct Cli {
-    #[arg(long, default_value = config::SERVER_ADDR)]
-    server: String,
+    #[arg(long)]
+    server: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
@@ -27,8 +27,11 @@ enum Commands {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-
-    let mut stream = match ops::connect(&cli.server).await {
+    let config = config::load_config();
+    let addr = cli.server.unwrap_or_else(|| {
+        format!("{}:{}", config.server.address, config.server.port)
+    });
+    let mut stream = match ops::connect(&addr).await {
         Ok(s) => s,
         Err(e) => { eprintln!("Could not connect to server: {}", e); return; }
     };
