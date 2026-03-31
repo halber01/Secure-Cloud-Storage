@@ -17,6 +17,8 @@ pub enum Message {
     DownloadResponse(DownloadResponse),
     Delete(Delete),
     DeleteOk,
+    GetVersion(GetVersion),
+    VersionResponse(VersionResponse),
     Error(Error),
 }
 
@@ -37,6 +39,8 @@ impl Message {
             Message::DownloadResponse(_)  => 0x0C,
             Message::Delete(_)            => 0x0D,
             Message::DeleteOk             => 0x0E,
+            Message::GetVersion(_)        => 0x0F,
+            Message::VersionResponse(_)   => 0x10,
             Message::Error(_)             => 0xFF,
         }
     }
@@ -117,6 +121,17 @@ pub struct Delete {
     pub session_token: Vec<u8>,
     pub file_id: Vec<u8>,
     pub signature: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetVersion {
+    pub session_token: Vec<u8>,
+    pub file_id: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionResponse {
+    pub version: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -17,3 +17,4 @@ aes-gcm = { version = "0.10", features = ["aes"] }
 toml = "0.8"
 dirs = "5"
 serde = { version = "1", features = ["derive"] }
+rustyline = "14"
