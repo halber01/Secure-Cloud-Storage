@@ -1,10 +1,13 @@
-use aes_gcm::{Aes256Gcm, Key, Nonce, aead::{Aead, AeadCore, KeyInit, OsRng}};
-use argon2::{Argon2, Params, Version};
+use crate::constants::*;
+use aes_gcm::{
+    Aes256Gcm, Key, Nonce,
+    aead::{Aead, AeadCore, KeyInit, OsRng},
+};
 use argon2::password_hash::rand_core::RngCore;
+use argon2::{Argon2, Params, Version};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
-use crate::constants::*;
 
 /// Generates 16 random bytes for use as Argon2 salt
 pub fn generate_salt() -> [u8; SALT_LEN] {

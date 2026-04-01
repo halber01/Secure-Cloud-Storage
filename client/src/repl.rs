@@ -1,11 +1,11 @@
+use crate::ops::{self, Session};
 use rustyline::Editor;
-use rustyline::error::ReadlineError;
 use rustyline::completion::{Completer, FilenameCompleter, Pair};
+use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
 use rustyline::{CompletionType, Config, Context, Helper};
-use crate::ops::{self, Session};
 use std::path::Path;
 
 // Helper
@@ -69,28 +69,28 @@ where
                 let parts: Vec<&str> = line.trim().split_whitespace().collect();
                 match parts.as_slice() {
                     // handle commands here
-                    ["help"] => { print_help(); }
+                    ["help"] => {
+                        print_help();
+                    }
                     ["exit"] | ["logout"] | ["quit"] => {
                         // TODO: tell server to invalidate session
                         println!("Goodbye.");
                         break;
                     }
-                    ["list"] => {
-                        match ops::list(stream, session).await {
-                            Ok(files) => {
-                                if files.is_empty() {
-                                    println!("No files stored.");
-                                }  else {
-                                    println!("{:<40} {}", "Filename", "Version");
-                                    println!("{}", "-".repeat(50));
-                                    for (name, version) in files {
-                                        println!("{:<40} v{}", name, version);
-                                    }
+                    ["list"] => match ops::list(stream, session).await {
+                        Ok(files) => {
+                            if files.is_empty() {
+                                println!("No files stored.");
+                            } else {
+                                println!("{:<40} {}", "Filename", "Version");
+                                println!("{}", "-".repeat(50));
+                                for (name, version) in files {
+                                    println!("{:<40} v{}", name, version);
                                 }
                             }
-                            Err(e) => eprintln!("List failed: {}", e),
                         }
-                    }
+                        Err(e) => eprintln!("List failed: {}", e),
+                    },
                     ["upload", local, remote] => {
                         match ops::upload(stream, session, Path::new(local), remote).await {
                             Ok(()) => println!("Uploaded '{}' as '{}'", local, remote),
@@ -131,27 +131,23 @@ where
                             _ => println!("Cancelled."),
                         }
                     }
-                    ["ls"] => {
-                        match std::fs::read_dir(".") {
-                            Ok(entries) => {
-                                let mut names: Vec<String> = entries
-                                    .flatten()
-                                    .map(|e| e.file_name().to_string_lossy().to_string())
-                                    .collect();
-                                names.sort();
-                                for name in names {
-                                    println!("{}", name);
-                                }
+                    ["ls"] => match std::fs::read_dir(".") {
+                        Ok(entries) => {
+                            let mut names: Vec<String> = entries
+                                .flatten()
+                                .map(|e| e.file_name().to_string_lossy().to_string())
+                                .collect();
+                            names.sort();
+                            for name in names {
+                                println!("{}", name);
                             }
-                            Err(e) => eprintln!("ls failed: {}", e),
                         }
-                    }
-                    ["pwd"] => {
-                        match std::env::current_dir() {
-                            Ok(path) => println!("{}", path.display()),
-                            Err(e) => eprintln!("pwd failed: {}", e),
-                        }
-                    }
+                        Err(e) => eprintln!("ls failed: {}", e),
+                    },
+                    ["pwd"] => match std::env::current_dir() {
+                        Ok(path) => println!("{}", path.display()),
+                        Err(e) => eprintln!("pwd failed: {}", e),
+                    },
                     ["cd", path] => {
                         if let Err(e) = std::env::set_current_dir(path) {
                             eprintln!("cd failed: {}", e);
@@ -164,7 +160,10 @@ where
                 println!("Ctrl+C — type 'exit' to quit");
             }
             Err(ReadlineError::Eof) => break, // Ctrl+D
-            Err(e) => { eprintln!("Error: {}", e); break; }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                break;
+            }
         }
     }
 }

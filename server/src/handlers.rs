@@ -1,7 +1,7 @@
-use ed25519_dalek::{VerifyingKey, Signature, Verifier};
+use crate::store::{FileRecord, Store, UserRecord};
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use rand::RngCore;
 use rand::rngs::OsRng;
-use crate::store::{Store, UserRecord, FileRecord};
 use shared::messages::*;
 
 /// Central dispatch — matches incoming message to the right handler
@@ -9,12 +9,12 @@ pub async fn handle(msg: Message, store: &Store) -> Message {
     match msg {
         Message::Register(r) => handle_register(r, store),
         Message::RequestChallenge(r) => handle_challenge(r, store),
-        Message::Login(r)      => handle_login(r, store),
-        Message::Upload(r)     => handle_upload(r, store),
-        Message::List(r)       => handle_list(r, store),
-        Message::Download(r)   => handle_download(r, store),
-        Message::Delete(r)     => handle_delete(r, store),
-        Message::GetVersion(r)   => handle_get_version(r, store),
+        Message::Login(r) => handle_login(r, store),
+        Message::Upload(r) => handle_upload(r, store),
+        Message::List(r) => handle_list(r, store),
+        Message::Download(r) => handle_download(r, store),
+        Message::Delete(r) => handle_delete(r, store),
+        Message::GetVersion(r) => handle_get_version(r, store),
         _ => error(0x07, "Unexpected message type"),
     }
 }
@@ -203,7 +203,7 @@ fn handle_get_version(req: GetVersion, store: &Store) -> Message {
         .get_file(&username, &req.file_id)
         .map(|f| f.version)
         .unwrap_or(0);
-    Message::VersionResponse(VersionResponse{ version })
+    Message::VersionResponse(VersionResponse { version })
 }
 
 // Signature verification helper
@@ -227,8 +227,8 @@ fn verify_signature(public_key: &[u8], message: &[u8], signature: &[u8]) -> bool
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ed25519_dalek::{SigningKey, Signer};
     use crate::store::Store;
+    use ed25519_dalek::{Signer, SigningKey};
 
     /// Helper: registers alice and returns her signing key
     fn setup_alice(store: &Store) -> SigningKey {

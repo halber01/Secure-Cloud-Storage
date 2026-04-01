@@ -1,13 +1,13 @@
+use ed25519_dalek::{Signer, SigningKey};
+use rustls::pki_types::ServerName;
+use shared::constants::*;
+use shared::crypto::*;
+use shared::frame::{recv_frame, send_frame};
+use shared::messages::*;
 use std::path::Path;
-use ed25519_dalek::{SigningKey, Signer};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
-use rustls::pki_types::ServerName;
-use shared::frame::{send_frame, recv_frame};
-use shared::messages::*;
-use shared::crypto::*;
-use shared::constants::*;
 
 // TLS connection
 
@@ -25,8 +25,8 @@ pub async fn connect(addr: &str) -> Result<TlsStream<TcpStream>, String> {
         .await
         .map_err(|e| format!("TCP connect failed: {e}"))?;
 
-    let server_name = ServerName::try_from("localhost")
-        .map_err(|e| format!("Invalid server name: {e}"))?;
+    let server_name =
+        ServerName::try_from("localhost").map_err(|e| format!("Invalid server name: {e}"))?;
 
     connector
         .connect(server_name, stream)
@@ -34,11 +34,11 @@ pub async fn connect(addr: &str) -> Result<TlsStream<TcpStream>, String> {
         .map_err(|e| format!("TLS handshake failed: {e}"))
 }
 
+use rustls::DigitallySignedStruct;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 /// Certificate verifier that accepts any certificate.
 /// ONLY for development: in production pin the server certificate.
 use std::sync::Arc;
-use rustls::client::danger::{ServerCertVerifier, ServerCertVerified, HandshakeSignatureValid};
-use rustls::DigitallySignedStruct;
 
 #[derive(Debug)]
 struct AcceptAnyCert;
@@ -56,14 +56,18 @@ impl ServerCertVerifier for AcceptAnyCert {
     }
 
     fn verify_tls12_signature(
-        &self, _msg: &[u8], _cert: &rustls::pki_types::CertificateDer,
+        &self,
+        _msg: &[u8],
+        _cert: &rustls::pki_types::CertificateDer,
         _dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
         Ok(HandshakeSignatureValid::assertion())
     }
 
     fn verify_tls13_signature(
-        &self, _msg: &[u8], _cert: &rustls::pki_types::CertificateDer,
+        &self,
+        _msg: &[u8],
+        _cert: &rustls::pki_types::CertificateDer,
         _dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
         Ok(HandshakeSignatureValid::assertion())
@@ -96,13 +100,10 @@ async fn recv_msg<S>(stream: &mut S) -> Result<Message, String>
 where
     S: tokio::io::AsyncRead + Unpin,
 {
-    let (_, payload) = recv_frame(stream)
-        .await
-        .map_err(|e| e.to_string())?;
-    let (msg, _): (Message, usize) = bincode::serde::decode_from_slice(
-        &payload,
-        bincode::config::standard(),
-    ).map_err(|e| e.to_string())?;
+    let (_, payload) = recv_frame(stream).await.map_err(|e| e.to_string())?;
+    let (msg, _): (Message, usize) =
+        bincode::serde::decode_from_slice(&payload, bincode::config::standard())
+            .map_err(|e| e.to_string())?;
     Ok(msg)
 }
 
@@ -121,11 +122,7 @@ pub struct Session {
 
 /// Derives keys from password and registers with the server.
 /// The server only receives: username, salt, public_key.
-pub async fn register<S>(
-    stream: &mut S,
-    username: &str,
-    password: &str,
-) -> Result<(), String>
+pub async fn register<S>(stream: &mut S, username: &str, password: &str) -> Result<(), String>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
@@ -138,11 +135,15 @@ where
     let signing_key = SigningKey::from_bytes(&signing_seed);
     let public_key = signing_key.verifying_key().to_bytes().to_vec();
 
-    send_msg(stream, Message::Register(Register {
-        username: username.to_string(),
-        salt: salt.to_vec(),
-        public_key,
-    })).await?;
+    send_msg(
+        stream,
+        Message::Register(Register {
+            username: username.to_string(),
+            salt: salt.to_vec(),
+            public_key,
+        }),
+    )
+    .await?;
 
     match recv_msg(stream).await? {
         Message::RegisterOk => Ok(()),
@@ -154,18 +155,18 @@ where
 // Login
 
 /// Performs challenge-response login, returns a Session with derived keys.
-pub async fn login<S>(
-    stream: &mut S,
-    username: &str,
-    password: &str,
-) -> Result<Session, String>
+pub async fn login<S>(stream: &mut S, username: &str, password: &str) -> Result<Session, String>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     // Step 1: request challenge
-    send_msg(stream, Message::RequestChallenge(RequestChallenge {
-        username: username.to_string(),
-    })).await?;
+    send_msg(
+        stream,
+        Message::RequestChallenge(RequestChallenge {
+            username: username.to_string(),
+        }),
+    )
+    .await?;
 
     let (nonce, salt) = match recv_msg(stream).await? {
         Message::Challenge(c) => (c.nonce, c.salt),
@@ -177,8 +178,8 @@ where
     let master_key = derive_master_key(password, &salt)?;
 
     // Derive all subkeys
-    let enc_key  = derive_subkey(&master_key, HKDF_ENC_LABEL);
-    let mac_key  = derive_subkey(&master_key, HKDF_MAC_LABEL);
+    let enc_key = derive_subkey(&master_key, HKDF_ENC_LABEL);
+    let mac_key = derive_subkey(&master_key, HKDF_MAC_LABEL);
     let meta_key = derive_subkey(&master_key, HKDF_META_LABEL);
 
     // Derive signing key — same seed as registration
@@ -191,10 +192,14 @@ where
     let signature = signing_key.sign(&msg).to_bytes().to_vec();
 
     // Step 3: send login
-    send_msg(stream, Message::Login(Login {
-        username: username.to_string(),
-        signature,
-    })).await?;
+    send_msg(
+        stream,
+        Message::Login(Login {
+            username: username.to_string(),
+            signature,
+        }),
+    )
+    .await?;
 
     let session_token = match recv_msg(stream).await? {
         Message::LoginOk(l) => l.session_token,
@@ -225,8 +230,7 @@ where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     // Read plaintext
-    let plaintext = std::fs::read(local_path)
-        .map_err(|e| e.to_string())?;
+    let plaintext = std::fs::read(local_path).map_err(|e| e.to_string())?;
 
     if plaintext.len() > MAX_FRAME_SIZE - 1000 {
         return Err("File too large — maximum 16MB in v1".to_string());
@@ -254,14 +258,18 @@ where
     sign_msg.extend_from_slice(&ciphertext);
     let signature = session.signing_key.sign(&sign_msg).to_bytes().to_vec();
 
-    send_msg(stream, Message::Upload(Upload {
-        session_token: session.session_token.clone(),
-        file_id,
-        ciphertext,
-        encrypted_metadata,
-        version: next_version,
-        signature,
-    })).await?;
+    send_msg(
+        stream,
+        Message::Upload(Upload {
+            session_token: session.session_token.clone(),
+            file_id,
+            ciphertext,
+            encrypted_metadata,
+            version: next_version,
+            signature,
+        }),
+    )
+    .await?;
 
     match recv_msg(stream).await? {
         Message::UploadOk => Ok(()),
@@ -284,10 +292,14 @@ where
 {
     let file_id = compute_file_id(&session.mac_key, remote_name);
 
-    send_msg(stream, Message::Download(Download {
-        session_token: session.session_token.clone(),
-        file_id: file_id.clone(),
-    })).await?;
+    send_msg(
+        stream,
+        Message::Download(Download {
+            session_token: session.session_token.clone(),
+            file_id: file_id.clone(),
+        }),
+    )
+    .await?;
 
     let resp = match recv_msg(stream).await? {
         Message::DownloadResponse(r) => r,
@@ -301,11 +313,14 @@ where
     sign_msg.extend_from_slice(&resp.version.to_le_bytes());
     sign_msg.extend_from_slice(&resp.ciphertext);
     let public_key = session.signing_key.verifying_key();
-    let sig_bytes: [u8; 64] = resp.signature.try_into()
+    let sig_bytes: [u8; 64] = resp
+        .signature
+        .try_into()
         .map_err(|_| "Invalid signature length".to_string())?;
     let sig = ed25519_dalek::Signature::from_bytes(&sig_bytes);
     use ed25519_dalek::Verifier;
-    public_key.verify(&sign_msg, &sig)
+    public_key
+        .verify(&sign_msg, &sig)
         .map_err(|_| "Signature verification failed — file may be tampered".to_string())?;
 
     // Decrypt
@@ -313,8 +328,7 @@ where
     let plaintext = decrypt(&file_key, &resp.ciphertext)?;
 
     // Save to disk
-    std::fs::write(local_path, &plaintext)
-        .map_err(|e| e.to_string())?;
+    std::fs::write(local_path, &plaintext).map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -322,16 +336,17 @@ where
 // List
 
 /// Lists all files, decrypting metadata client-side.
-pub async fn list<S>(
-    stream: &mut S,
-    session: &Session,
-) -> Result<Vec<(String, u64)>, String>
+pub async fn list<S>(stream: &mut S, session: &Session) -> Result<Vec<(String, u64)>, String>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    send_msg(stream, Message::List(List {
-        session_token: session.session_token.clone(),
-    })).await?;
+    send_msg(
+        stream,
+        Message::List(List {
+            session_token: session.session_token.clone(),
+        }),
+    )
+    .await?;
 
     let entries = match recv_msg(stream).await? {
         Message::ListResponse(r) => r.list,
@@ -346,9 +361,7 @@ where
             Ok(bytes) => {
                 let meta = String::from_utf8_lossy(&bytes).to_string();
                 // metadata format: "filename:version"
-                let name = meta.split(':').next()
-                    .unwrap_or("unknown")
-                    .to_string();
+                let name = meta.split(':').next().unwrap_or("unknown").to_string();
                 files.push((name, entry.version));
             }
             Err(_) => files.push(("<undecryptable>".to_string(), entry.version)),
@@ -357,7 +370,6 @@ where
 
     Ok(files)
 }
-
 
 pub async fn delete_file<S>(
     stream: &mut S,
@@ -371,11 +383,15 @@ where
     let msg = delete_sign_message(&file_id);
     let signature = session.signing_key.sign(&msg).to_bytes().to_vec();
 
-    send_msg(stream, Message::Delete(Delete {
-        session_token: session.session_token.clone(),
-        file_id,
-        signature,
-    })).await?;
+    send_msg(
+        stream,
+        Message::Delete(Delete {
+            session_token: session.session_token.clone(),
+            file_id,
+            signature,
+        }),
+    )
+    .await?;
 
     match recv_msg(stream).await? {
         Message::DeleteOk => Ok(()),
@@ -392,10 +408,14 @@ pub async fn fetch_current_version<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    send_msg(stream, Message::GetVersion(GetVersion {
-        session_token: session.session_token.clone(),
-        file_id: file_id.to_vec(),
-    })).await?;
+    send_msg(
+        stream,
+        Message::GetVersion(GetVersion {
+            session_token: session.session_token.clone(),
+            file_id: file_id.to_vec(),
+        }),
+    )
+    .await?;
 
     match recv_msg(stream).await? {
         Message::VersionResponse(r) => Ok(r.version),

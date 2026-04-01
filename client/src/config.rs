@@ -1,6 +1,5 @@
-use std::path::{PathBuf};
 use serde::{Deserialize, Serialize};
-
+use std::path::PathBuf;
 
 // Structs
 #[derive(Serialize, Deserialize)]
@@ -20,7 +19,7 @@ pub struct ServerConfig {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct TlsConfig {
-    pub mode: TlsMode,          // "saas" or "selfhosted"
+    pub mode: TlsMode, // "saas" or "selfhosted"
     #[serde(default)]
     pub ca_fingerprint: String, // empty for SaaS
 }
@@ -94,7 +93,9 @@ mod tests {
         let temp_path = std::env::temp_dir().join("test_config.toml");
 
         // write a config with non-default values
-        std::fs::write(&temp_path, r#"
+        std::fs::write(
+            &temp_path,
+            r#"
         [server]
         address = "192.168.1.100"
         port = 9000
@@ -102,7 +103,9 @@ mod tests {
         [tls]
         mode = "SelfHosted"
         ca-fingerprint = "abc123"
-    "#).unwrap();
+    "#,
+        )
+        .unwrap();
 
         let config = load_config_from(temp_path.clone());
         let contents = std::fs::read_to_string(&temp_path).unwrap();
@@ -113,7 +116,6 @@ mod tests {
             Ok(_) => println!("Parse ok"),
             Err(e) => println!("Parse error: {}", e),
         }
-
 
         // assert non-default values were loaded
         assert_eq!(config.server.address, "192.168.1.100");

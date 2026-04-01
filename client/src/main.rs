@@ -1,9 +1,9 @@
-mod ops;
 mod config;
+mod ops;
 mod repl;
 
-use std::path::Path;
 use clap::{Parser, Subcommand};
+use std::path::Path;
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 
@@ -27,12 +27,15 @@ enum Commands {
 async fn main() {
     let cli = Cli::parse();
     let config = config::load_config();
-    let addr = cli.server.unwrap_or_else(|| {
-        format!("{}:{}", config.server.address, config.server.port)
-    });
+    let addr = cli
+        .server
+        .unwrap_or_else(|| format!("{}:{}", config.server.address, config.server.port));
     let mut stream = match ops::connect(&addr).await {
         Ok(s) => s,
-        Err(e) => { eprintln!("Could not connect to server: {}", e); return; }
+        Err(e) => {
+            eprintln!("Could not connect to server: {}", e);
+            return;
+        }
     };
     match cli.command {
         Commands::Register { username } => {
@@ -45,7 +48,10 @@ async fn main() {
         Commands::Login { username } => {
             let mut stream = match ops::connect(&addr).await {
                 Ok(s) => s,
-                Err(e) => { eprintln!("Could not connect: {}", e); return; }
+                Err(e) => {
+                    eprintln!("Could not connect: {}", e);
+                    return;
+                }
             };
             let password = rpassword::prompt_password("Password: ").unwrap();
             match ops::login(&mut stream, &username, &password).await {
