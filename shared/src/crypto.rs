@@ -18,7 +18,13 @@ pub fn generate_salt() -> [u8; SALT_LEN] {
 
 /// Derives a 32-byte master key from password + salt using Argon2id
 pub fn derive_master_key(password: &str, salt: &[u8]) -> Result<[u8; KEY_LEN], String> {
-    let params = Params::new(ARGON2_MEMORY_KIB, ARGON2_ITERATIONS, ARGON2_PARALLELISM, Some(KEY_LEN)).map_err(|e| e.to_string())?;
+    let params = Params::new(
+        ARGON2_MEMORY_KIB,
+        ARGON2_ITERATIONS,
+        ARGON2_PARALLELISM,
+        Some(KEY_LEN),
+    )
+    .map_err(|e| e.to_string())?;
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
     let mut key = [0u8; KEY_LEN];
     argon2
