@@ -1,5 +1,4 @@
-use serde::{Serialize, Deserialize};
-
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Message {
@@ -23,21 +22,21 @@ pub enum Message {
 impl Message {
     pub fn type_byte(&self) -> u8 {
         match self {
-            Message::Register(_)          => 0x01,
-            Message::RegisterOk           => 0x02,
-            Message::RequestChallenge(_)  => 0x03,
-            Message::Challenge(_)         => 0x04,
-            Message::Login(_)             => 0x05,
-            Message::LoginOk(_)           => 0x06,
-            Message::Upload(_)            => 0x07,
-            Message::UploadOk             => 0x08,
-            Message::List(_)              => 0x09,
-            Message::ListResponse(_)       => 0x0A,
-            Message::Download(_)          => 0x0B,
-            Message::DownloadResponse(_)  => 0x0C,
-            Message::Delete(_)            => 0x0D,
-            Message::DeleteOk             => 0x0E,
-            Message::Error(_)             => 0xFF,
+            Message::Register(_) => 0x01,
+            Message::RegisterOk => 0x02,
+            Message::RequestChallenge(_) => 0x03,
+            Message::Challenge(_) => 0x04,
+            Message::Login(_) => 0x05,
+            Message::LoginOk(_) => 0x06,
+            Message::Upload(_) => 0x07,
+            Message::UploadOk => 0x08,
+            Message::List(_) => 0x09,
+            Message::ListResponse(_) => 0x0A,
+            Message::Download(_) => 0x0B,
+            Message::DownloadResponse(_) => 0x0C,
+            Message::Delete(_) => 0x0D,
+            Message::DeleteOk => 0x0E,
+            Message::Error(_) => 0xFF,
         }
     }
 }

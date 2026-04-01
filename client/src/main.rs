@@ -1,8 +1,8 @@
-mod ops;
 mod config;
+mod ops;
 
-use std::path::Path;
 use clap::{Parser, Subcommand};
+use std::path::Path;
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 
@@ -18,10 +18,23 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    Register { username: String },
-    Upload { username: String, local_path: String, remote_name: String, version: u64 },
-    Download { username: String, remote_name: String, local_path: String },
-    List { username: String },
+    Register {
+        username: String,
+    },
+    Upload {
+        username: String,
+        local_path: String,
+        remote_name: String,
+        version: u64,
+    },
+    Download {
+        username: String,
+        remote_name: String,
+        local_path: String,
+    },
+    List {
+        username: String,
+    },
 }
 
 #[tokio::main]
@@ -30,7 +43,10 @@ async fn main() {
 
     let mut stream = match ops::connect(&cli.server).await {
         Ok(s) => s,
-        Err(e) => { eprintln!("Could not connect to server: {}", e); return; }
+        Err(e) => {
+            eprintln!("Could not connect to server: {}", e);
+            return;
+        }
     };
     match cli.command {
         Commands::Register { username } => {
@@ -40,17 +56,34 @@ async fn main() {
                 Err(e) => eprintln!("Registration failed: {}", e),
             }
         }
-        Commands::Upload { username, local_path, remote_name, version } => {
+        Commands::Upload {
+            username,
+            local_path,
+            remote_name,
+            version,
+        } => {
             let session = match prompt_and_login(&mut stream, &username).await {
                 Some(s) => s,
                 None => return,
             };
-            match ops::upload(&mut stream, &session, Path::new(&local_path), &remote_name, version).await {
+            match ops::upload(
+                &mut stream,
+                &session,
+                Path::new(&local_path),
+                &remote_name,
+                version,
+            )
+            .await
+            {
                 Ok(()) => println!("Uploaded '{}' as '{}'", local_path, remote_name),
                 Err(e) => eprintln!("Upload failed: {}", e),
             }
         }
-        Commands::Download { username, remote_name, local_path } => {
+        Commands::Download {
+            username,
+            remote_name,
+            local_path,
+        } => {
             let session = match prompt_and_login(&mut stream, &username).await {
                 Some(s) => s,
                 None => return,
@@ -70,7 +103,7 @@ async fn main() {
                     if files.is_empty() {
                         println!("No files stored.");
                     } else {
-                        println!("{:<40} {}", "Filename", "Version");
+                        println!("{:<40} Version", "Filename");
                         println!("{}", "-".repeat(50));
                         for (name, version) in files {
                             println!("{:<40} v{}", name, version);
@@ -92,7 +125,7 @@ async fn prompt_and_login(
         Ok(session) => {
             println!("Logged in as '{}'", session.username);
             Some(session)
-        },
+        }
         Err(e) => {
             eprintln!("Login failed: {}", e);
             None
