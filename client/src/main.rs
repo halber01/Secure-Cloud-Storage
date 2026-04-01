@@ -3,9 +3,6 @@ mod ops;
 mod repl;
 
 use clap::{Parser, Subcommand};
-use std::path::Path;
-use tokio::net::TcpStream;
-use tokio_rustls::client::TlsStream;
 
 #[derive(Parser)]
 #[command(name = "cloud", about = "Secure cloud storage client")]
