@@ -423,3 +423,15 @@ where
         _ => Err("Unexpected response".to_string()),
     }
 }
+
+pub async fn get_version<S>(
+    stream: &mut S,
+    session: &Session,
+    remote_name: &str,
+) -> Result<u64, String>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let file_id = compute_file_id(&session.mac_key, remote_name);
+    fetch_current_version(stream, session, &file_id).await
+}
