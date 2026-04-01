@@ -1,0 +1,56 @@
+# ── Rust / Cargo ─────────────────────────────────────────────────────────────
+target/
+**/*.rs.bk
+Cargo.lock
+
+# ── Sensitive data ────────────────────────────────────────────────────────────
+# TLS / PKI
+*.pem
+*.key
+*.crt
+*.csr
+*.p12
+*.pfx
+*.der
+*.cer
+certs/
+keys/
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+secrets/
+*.secret
+config/local.*
+
+# Argon2 / KDF parameters that may embed secrets
+*.keyfile
+
+# Ed25519 / signing keys
+*.priv
+*.pub.local
+
+# ── Client-side storage ───────────────────────────────────────────────────────
+# Local encrypted file store (dirs-next default paths land here during dev)
+client_storage/
+local_store/
+*.vault
+
+# ── Server-side storage ───────────────────────────────────────────────────────
+server_storage/
+uploads/
+blobs/
+
+# ── Test artefacts ────────────────────────────────────────────────────────────
+tests/fixtures/generated/
+tests/tmp/
+*.test.key
+*.test.pem
+
+# ── IDE / OS ──────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

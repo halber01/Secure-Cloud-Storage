@@ -15,8 +15,13 @@ pub fn generate_salt() -> [u8; SALT_LEN] {
 
 /// Derives a 32-byte master key from password + salt using Argon2id
 pub fn derive_master_key(password: &str, salt: &[u8]) -> Result<[u8; KEY_LEN], String> {
-    let params = Params::new(ARGON2_MEMORY_KIB, 3, 1, Some(KEY_LEN))
-        .map_err(|e| e.to_string())?;
+    let params = Params::new(
+        ARGON2_MEMORY_KIB,
+        ARGON2_ITERATIONS,
+        ARGON2_PARALLELISM,
+        Some(KEY_LEN),
+    )
+    .map_err(|e| e.to_string())?;
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
     let mut key = [0u8; KEY_LEN];
     argon2
@@ -40,8 +45,8 @@ pub fn derive_subkey(master_key: &[u8], label: &[u8]) -> [u8; KEY_LEN] {
 /// Computes a deterministic file ID: HMAC-SHA256(mac_key, filename)
 /// Server sees only encrypted filename
 pub fn compute_file_id(mac_key: &[u8], filename: &str) -> Vec<u8> {
-    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(mac_key)
-        .expect("HMAC accepts any key size");
+    let mut mac =
+        <Hmac<Sha256> as Mac>::new_from_slice(mac_key).expect("HMAC accepts any key size");
     mac.update(filename.as_bytes());
     mac.finalize().into_bytes().to_vec()
 }
@@ -122,8 +127,8 @@ mod tests {
     #[test]
     fn test_subkey_domain_separation() {
         let master = [0u8; 32];
-        let enc_key  = derive_subkey(&master, HKDF_ENC_LABEL);
-        let mac_key  = derive_subkey(&master, HKDF_MAC_LABEL);
+        let enc_key = derive_subkey(&master, HKDF_ENC_LABEL);
+        let mac_key = derive_subkey(&master, HKDF_MAC_LABEL);
         let meta_key = derive_subkey(&master, HKDF_META_LABEL);
         assert_ne!(enc_key, mac_key);
         assert_ne!(mac_key, meta_key);
