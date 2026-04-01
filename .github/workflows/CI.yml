@@ -13,8 +13,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # Speeds up compilation by keeping the sccache between runs (optional but nice).
-  RUSTFLAGS: "-D warnings"   # treat every compiler warning as an error
 
 jobs:
   test:
@@ -38,7 +36,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy (all crates, all features)
-        run: cargo clippy --workspace --all-targets --all-features
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Build workspace
         run: cargo build --workspace
