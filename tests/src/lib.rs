@@ -1,25 +1,24 @@
 #[cfg(test)]
 mod tests {
-    use shared::messages::*;
-    use tokio::io::duplex;
     use client::ops::{download, list, login, register, upload};
     use server::handlers;
     use server::store::Store;
     use shared::frame::{recv_frame, send_frame};
+    use shared::messages::*;
+    use tokio::io::duplex;
 
     /// Simulates a server responding to one message
-    async fn server_respond(server: &mut (impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin), store: &Store) {
+    async fn server_respond(
+        server: &mut (impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin),
+        store: &Store,
+    ) {
         let (_, payload) = recv_frame(server).await.unwrap();
-        let (msg, _): (Message, usize) = bincode::serde::decode_from_slice(
-            &payload,
-            bincode::config::standard()
-        ).unwrap();
+        let (msg, _): (Message, usize) =
+            bincode::serde::decode_from_slice(&payload, bincode::config::standard()).unwrap();
         let response = handlers::handle(msg, store).await;
         let type_byte = response.type_byte();
-        let resp_payload = bincode::serde::encode_to_vec(
-            &response,
-            bincode::config::standard()
-        ).unwrap();
+        let resp_payload =
+            bincode::serde::encode_to_vec(&response, bincode::config::standard()).unwrap();
         send_frame(server, type_byte, &resp_payload).await.unwrap();
     }
 
@@ -51,7 +50,9 @@ mod tests {
             server_respond(&mut server, &store).await; // login attempt
         });
 
-        register(&mut client, "alice", "correctpassword").await.unwrap();
+        register(&mut client, "alice", "correctpassword")
+            .await
+            .unwrap();
         let result = login(&mut client, "alice", "wrongpassword").await;
         assert!(result.is_err());
     }
@@ -77,7 +78,9 @@ mod tests {
         std::fs::write(&tmp, b"secret file contents").unwrap();
 
         // upload
-        upload(&mut client, &session, &tmp, "test.txt", 1).await.unwrap();
+        upload(&mut client, &session, &tmp, "test.txt", 1)
+            .await
+            .unwrap();
 
         // login again for fresh session
         let (_client2, _server2) = duplex(65536);
@@ -86,7 +89,9 @@ mod tests {
 
         // download
         let out = std::env::temp_dir().join("test_download.txt");
-        download(&mut client, &session2, "test.txt", &out).await.unwrap();
+        download(&mut client, &session2, "test.txt", &out)
+            .await
+            .unwrap();
 
         // verify contents match
         let contents = std::fs::read(&out).unwrap();
@@ -102,7 +107,8 @@ mod tests {
         let (mut client, mut server) = duplex(65536);
 
         tokio::spawn(async move {
-            for _ in 0..5 { // register, challenge, login, upload, list
+            for _ in 0..5 {
+                // register, challenge, login, upload, list
                 server_respond(&mut server, &store).await;
             }
         });
@@ -112,7 +118,9 @@ mod tests {
 
         let tmp = std::env::temp_dir().join("list_test.txt");
         std::fs::write(&tmp, b"data").unwrap();
-        upload(&mut client, &session, &tmp, "myfile.txt", 1).await.unwrap();
+        upload(&mut client, &session, &tmp, "myfile.txt", 1)
+            .await
+            .unwrap();
 
         let files = list(&mut client, &session).await.unwrap();
         assert_eq!(files.len(), 1);

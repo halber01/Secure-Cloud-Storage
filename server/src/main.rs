@@ -1,31 +1,26 @@
+mod config;
 mod handlers;
 mod store;
-mod config;
 
-use std::sync::Arc;
+use config::SERVER_CONFIG;
 use rustls::ServerConfig;
+use shared::frame::{recv_frame, send_frame};
+use shared::messages::Message;
+use std::sync::Arc;
+use store::Store;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
-use store::Store;
-use shared::messages::Message;
-use shared::frame::{send_frame, recv_frame};
-use config::SERVER_CONFIG;
 
 #[tokio::main]
 async fn main() {
     let store = Store::new();
 
     // TLS setup
-    let cert = rcgen::generate_simple_self_signed(
-        vec!["localhost".to_string()]
-    ).expect("Failed to generate certificate");
+    let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
+        .expect("Failed to generate certificate");
 
-    let cert_der = rustls::pki_types::CertificateDer::from(
-        cert.cert.der().to_vec()
-    );
-    let key_der = rustls::pki_types::PrivateKeyDer::Pkcs8(
-        cert.key_pair.serialize_der().into()
-    );
+    let cert_der = rustls::pki_types::CertificateDer::from(cert.cert.der().to_vec());
+    let key_der = rustls::pki_types::PrivateKeyDer::Pkcs8(cert.key_pair.serialize_der().into());
 
     let tls_config = ServerConfig::builder()
         .with_no_client_auth()
@@ -39,13 +34,19 @@ async fn main() {
         .await
         .expect("Failed to bind");
 
-    println!("Server listening on {}:{}", SERVER_CONFIG.address, SERVER_CONFIG.port);
+    println!(
+        "Server listening on {}:{}",
+        SERVER_CONFIG.address, SERVER_CONFIG.port
+    );
 
     // Accept loop
     loop {
         let (stream, addr) = match listener.accept().await {
             Ok(s) => s,
-            Err(e) => { eprintln!("Accept error: {e}"); continue; }
+            Err(e) => {
+                eprintln!("Accept error: {e}");
+                continue;
+            }
         };
 
         let acceptor = acceptor.clone();
@@ -77,21 +78,19 @@ where
         };
 
         // Deserialize message
-        let (msg, _): (Message, usize) = match bincode::serde::decode_from_slice(
-            &payload,
-            bincode::config::standard()
-        ) {
-            Ok(m) => m,
-            Err(_) => {
-                // Send error frame and continue
-                let err = Message::Error(shared::messages::Error {
-                    code: 0x07,
-                    message: "Malformed frame".to_string(),
-                });
-                let _ = send_message(&mut stream, err).await;
-                continue;
-            }
-        };
+        let (msg, _): (Message, usize) =
+            match bincode::serde::decode_from_slice(&payload, bincode::config::standard()) {
+                Ok(m) => m,
+                Err(_) => {
+                    // Send error frame and continue
+                    let err = Message::Error(shared::messages::Error {
+                        code: 0x07,
+                        message: "Malformed frame".to_string(),
+                    });
+                    let _ = send_message(&mut stream, err).await;
+                    continue;
+                }
+            };
 
         // Dispatch to handler
         let response = handlers::handle(msg, &store).await;
@@ -130,10 +129,8 @@ mod tests {
 
         // receive and deserialize on the other end
         let (_, payload) = recv_frame(&mut server).await.unwrap();
-        let (decoded, _): (Message, usize) = bincode::serde::decode_from_slice(
-            &payload,
-            bincode::config::standard()
-        ).unwrap();
+        let (decoded, _): (Message, usize) =
+            bincode::serde::decode_from_slice(&payload, bincode::config::standard()).unwrap();
 
         assert!(matches!(decoded, Message::RegisterOk));
     }
@@ -143,13 +140,13 @@ mod tests {
         let (mut client, mut server) = duplex(1024);
 
         // send garbage payload
-        send_frame(&mut client, 0x01, b"not valid bincode").await.unwrap();
+        send_frame(&mut client, 0x01, b"not valid bincode")
+            .await
+            .unwrap();
 
         let (_, payload) = recv_frame(&mut server).await.unwrap();
-        let result: Result<(Message, usize), _> = bincode::serde::decode_from_slice(
-            &payload,
-            bincode::config::standard()
-        );
+        let result: Result<(Message, usize), _> =
+            bincode::serde::decode_from_slice(&payload, bincode::config::standard());
 
         assert!(result.is_err());
     }

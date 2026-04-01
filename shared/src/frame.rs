@@ -1,8 +1,12 @@
-use tokio::io::AsyncWriteExt;
-use tokio::io::AsyncReadExt;
 use crate::constants::*;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
 
-pub async fn send_frame<S>(stream: &mut S, msg_type: u8, payload: &[u8]) -> Result<(), std::io::Error>
+pub async fn send_frame<S>(
+    stream: &mut S,
+    msg_type: u8,
+    payload: &[u8],
+) -> Result<(), std::io::Error>
 where
     S: AsyncWriteExt + Unpin,
 {
@@ -20,13 +24,13 @@ pub async fn recv_frame<S>(stream: &mut S) -> Result<(u8, Vec<u8>), std::io::Err
 where
     S: AsyncReadExt + Unpin,
 {
-    let mut length_buf  = [0u8; 4];
+    let mut length_buf = [0u8; 4];
     stream.read_exact(&mut length_buf).await?;
     let length = u32::from_be_bytes(length_buf) as usize;
-    if  length < 1  || length > MAX_FRAME_SIZE{
+    if !(1..=MAX_FRAME_SIZE).contains(&length) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            "Frame length out of bounds"
+            "Frame length out of bounds",
         ));
     }
     let mut buf = vec![0u8; length];
