@@ -92,7 +92,9 @@ where
                         Err(e) => eprintln!("List failed: {}", e),
                     },
                     ["upload", local, remote] => {
-                        match ops::upload(stream, session, Path::new(local), remote).await {
+                        match ops::upload_auto_version(stream, session, Path::new(local), remote)
+                            .await
+                        {
                             Ok(()) => println!("Uploaded '{}' as '{}'", local, remote),
                             Err(e) => eprintln!("Upload failed: {}", e),
                         }
@@ -102,7 +104,14 @@ where
                             .file_name()
                             .unwrap_or_default()
                             .to_string_lossy();
-                        match ops::upload(stream, session, Path::new(local), &remote).await {
+                        match ops::upload_auto_version(
+                            stream,
+                            session,
+                            Path::new(local),
+                            &remote,
+                        )
+                        .await
+                        {
                             Ok(()) => println!("✓ Uploaded '{}'", local),
                             Err(e) => eprintln!("Upload failed: {}", e),
                         }

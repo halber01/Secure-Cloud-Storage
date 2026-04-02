@@ -381,6 +381,67 @@ where
     Ok(())
 }
 
+// ── Upload (auto-version) ─────────────────────────────────────────────────────
+
+/// REPL-friendly wrapper around `upload` that determines the next version
+/// automatically: lists the user's files, finds the current version for
+/// `remote_name` (or 0 if it doesn't exist yet), then uploads as
+/// `current_version + 1`.
+pub async fn upload_auto_version<S>(
+    stream: &mut S,
+    session: &Session,
+    local_path: &Path,
+    remote_name: &str,
+) -> Result<(), String>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let files = list(stream, session).await?;
+    let current = files
+        .iter()
+        .find(|(name, _)| name == remote_name)
+        .map(|(_, v)| *v)
+        .unwrap_or(0);
+    upload(stream, session, local_path, remote_name, current + 1).await
+}
+
+// ── Delete ────────────────────────────────────────────────────────────────────
+
+/// Deletes a remote file by name. Signs the request so the server can verify
+/// the deletion was authorised by the session owner.
+pub async fn delete_file<S>(
+    stream: &mut S,
+    session: &Session,
+    remote_name: &str,
+) -> Result<(), String>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let file_id = compute_file_id(&session.mac_key, remote_name);
+
+    // Sign "delete:" || file_id  — matches what the server verifies.
+    let mut sign_msg = Vec::new();
+    sign_msg.extend_from_slice(b"delete:");
+    sign_msg.extend_from_slice(&file_id);
+    let signature = session.signing_key.sign(&sign_msg).to_bytes().to_vec();
+
+    send_msg(
+        stream,
+        Message::Delete(Delete {
+            session_token: session.session_token.clone(),
+            file_id,
+            signature,
+        }),
+    )
+    .await?;
+
+    match recv_msg(stream).await? {
+        Message::DeleteOk => Ok(()),
+        Message::Error(e) => Err(e.message),
+        _ => Err("Unexpected response".to_string()),
+    }
+}
+
 // ── List ──────────────────────────────────────────────────────────────────────
 
 /// Lists all files, decrypting metadata client-side.
