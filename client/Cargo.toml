@@ -9,6 +9,7 @@ tokio = { version = "1", features = ["full"] }
 bincode = { version = "2", features = ["serde"] }
 rustls = { version = "0.23" }
 tokio-rustls = { version = "0.26" }
+opaque-ke = { version = "4", features = ["ristretto255", "argon2"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 clap = { version = "4", features = ["derive"] }
 rpassword = "7"

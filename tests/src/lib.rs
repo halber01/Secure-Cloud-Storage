@@ -7,7 +7,7 @@ mod tests {
     use shared::messages::*;
     use tokio::io::duplex;
 
-    /// Simulates a server responding to one message
+    /// Simulates a server responding to one message.
     async fn server_respond(
         server: &mut (impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin),
         store: &Store,
@@ -22,16 +22,19 @@ mod tests {
         send_frame(server, type_byte, &resp_payload).await.unwrap();
     }
 
+    // OPAQUE registration = 2 server round trips.
+    // OPAQUE login       = 2 server round trips.
+
     #[tokio::test]
     async fn test_register_login_roundtrip() {
-        let store = Store::new();
+        let store = Store::new_random();
         let (mut client, mut server) = duplex(65536);
 
-        // register
         tokio::spawn(async move {
-            server_respond(&mut server, &store).await; // register
-            server_respond(&mut server, &store).await; // challenge
-            server_respond(&mut server, &store).await; // login
+            server_respond(&mut server, &store).await; // OpaqueRegStart  → OpaqueRegResp
+            server_respond(&mut server, &store).await; // OpaqueRegFinish → RegisterOk
+            server_respond(&mut server, &store).await; // OpaqueLoginStart  → OpaqueLoginResp
+            server_respond(&mut server, &store).await; // OpaqueLoginFinish → LoginOk
         });
 
         register(&mut client, "alice", "password123").await.unwrap();
@@ -41,13 +44,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_wrong_password_fails() {
-        let store = Store::new();
+        let store = Store::new_random();
         let (mut client, mut server) = duplex(65536);
 
         tokio::spawn(async move {
-            server_respond(&mut server, &store).await; // register
-            server_respond(&mut server, &store).await; // challenge
-            server_respond(&mut server, &store).await; // login attempt
+            server_respond(&mut server, &store).await; // OpaqueRegStart  → OpaqueRegResp
+            server_respond(&mut server, &store).await; // OpaqueRegFinish → RegisterOk
+            server_respond(&mut server, &store).await; // OpaqueLoginStart → OpaqueLoginResp
+            // Wrong password: client detects it locally; OpaqueLoginFinish is never sent.
         });
 
         register(&mut client, "alice", "correctpassword")
@@ -59,41 +63,34 @@ mod tests {
 
     #[tokio::test]
     async fn test_upload_download_roundtrip() {
-        let store = Store::new();
+        let store = Store::new_random();
         let (mut client, mut server) = duplex(65536);
 
-        // server handles: register, challenge, login, upload, challenge, login, download
+        // register(2) + login(2) + upload(1) + login-again(2) + download(1) = 8
         tokio::spawn(async move {
-            for _ in 0..7 {
+            for _ in 0..8 {
                 server_respond(&mut server, &store).await;
             }
         });
 
-        // register and login
         register(&mut client, "alice", "password123").await.unwrap();
         let session = login(&mut client, "alice", "password123").await.unwrap();
 
-        // write a temp file
         let tmp = std::env::temp_dir().join("test_upload.txt");
         std::fs::write(&tmp, b"secret file contents").unwrap();
 
-        // upload
         upload(&mut client, &session, &tmp, "test.txt", 1)
             .await
             .unwrap();
 
-        // login again for fresh session
-        let (_client2, _server2) = duplex(65536);
-        // reuse same store via re-login
+        // Login again for a fresh session (re-using the same duplex stream/store).
         let session2 = login(&mut client, "alice", "password123").await.unwrap();
 
-        // download
         let out = std::env::temp_dir().join("test_download.txt");
         download(&mut client, &session2, "test.txt", &out)
             .await
             .unwrap();
 
-        // verify contents match
         let contents = std::fs::read(&out).unwrap();
         assert_eq!(contents, b"secret file contents");
 
@@ -103,12 +100,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_shows_decrypted_filenames() {
-        let store = Store::new();
+        let store = Store::new_random();
         let (mut client, mut server) = duplex(65536);
 
+        // register(2) + login(2) + upload(1) + list(1) = 6
         tokio::spawn(async move {
-            for _ in 0..5 {
-                // register, challenge, login, upload, list
+            for _ in 0..6 {
                 server_respond(&mut server, &store).await;
             }
         });
@@ -127,5 +124,31 @@ mod tests {
         assert_eq!(files[0].0, "myfile.txt");
 
         std::fs::remove_file(&tmp).unwrap();
+    }
+
+    /// The same password must produce the same file-operation keys on every login.
+    #[tokio::test]
+    async fn test_export_key_consistency() {
+        let store = Store::new_random();
+        let (mut client, mut server) = duplex(65536);
+
+        // register(2) + login(2) + login-again(2) = 6
+        tokio::spawn(async move {
+            for _ in 0..6 {
+                server_respond(&mut server, &store).await;
+            }
+        });
+
+        register(&mut client, "alice", "password123").await.unwrap();
+        let s1 = login(&mut client, "alice", "password123").await.unwrap();
+        let s2 = login(&mut client, "alice", "password123").await.unwrap();
+
+        assert_eq!(s1.enc_key, s2.enc_key);
+        assert_eq!(s1.mac_key, s2.mac_key);
+        assert_eq!(s1.meta_key, s2.meta_key);
+        assert_eq!(
+            s1.signing_key.verifying_key().to_bytes(),
+            s2.signing_key.verifying_key().to_bytes()
+        );
     }
 }

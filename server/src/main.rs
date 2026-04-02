@@ -3,7 +3,10 @@ mod handlers;
 mod store;
 
 use config::SERVER_CONFIG;
+use opaque_ke::ServerSetup;
+use opaque_ke::rand::rngs::OsRng;
 use rustls::ServerConfig;
+use shared::crypto::DefaultCipherSuite;
 use shared::frame::{recv_frame, send_frame};
 use shared::messages::Message;
 use std::sync::Arc;
@@ -11,9 +14,35 @@ use store::Store;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
+const SERVER_SETUP_PATH: &str = "server_setup.bin";
+
+/// Loads the OPAQUE ServerSetup from disk, or generates and persists a new one.
+/// The ServerSetup contains the server's long-term OPRF seed and keypair.
+/// Losing it invalidates all registered users' password files.
+fn load_or_create_server_setup() -> ServerSetup<DefaultCipherSuite> {
+    if let Ok(bytes) = std::fs::read(SERVER_SETUP_PATH) {
+        match ServerSetup::<DefaultCipherSuite>::deserialize(&bytes) {
+            Ok(setup) => {
+                println!("Loaded ServerSetup from {SERVER_SETUP_PATH}");
+                return setup;
+            }
+            Err(e) => eprintln!("Warning: failed to deserialize ServerSetup ({e}), generating new"),
+        }
+    }
+    let setup = ServerSetup::<DefaultCipherSuite>::new(&mut OsRng);
+    let bytes = setup.serialize();
+    if let Err(e) = std::fs::write(SERVER_SETUP_PATH, &*bytes) {
+        eprintln!("Warning: could not persist ServerSetup: {e}");
+    } else {
+        println!("Generated and saved new ServerSetup to {SERVER_SETUP_PATH}");
+    }
+    setup
+}
+
 #[tokio::main]
 async fn main() {
-    let store = Store::new();
+    let server_setup = load_or_create_server_setup();
+    let store = Store::new(server_setup);
 
     // TLS setup
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
@@ -29,7 +58,6 @@ async fn main() {
 
     let acceptor = TlsAcceptor::from(Arc::new(tls_config));
 
-    // TCP listener
     let listener = TcpListener::bind(format!("{}:{}", SERVER_CONFIG.address, SERVER_CONFIG.port))
         .await
         .expect("Failed to bind");
@@ -39,7 +67,6 @@ async fn main() {
         SERVER_CONFIG.address, SERVER_CONFIG.port
     );
 
-    // Accept loop
     loop {
         let (stream, addr) = match listener.accept().await {
             Ok(s) => s,
@@ -65,24 +92,20 @@ async fn main() {
     }
 }
 
-// Per-client handler
 async fn handle_client<S>(mut stream: S, store: Store)
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     loop {
-        // Read one frame
         let (_msg_type, payload) = match recv_frame(&mut stream).await {
             Ok(f) => f,
-            Err(_) => break, // client disconnected
+            Err(_) => break,
         };
 
-        // Deserialize message
         let (msg, _): (Message, usize) =
             match bincode::serde::decode_from_slice(&payload, bincode::config::standard()) {
                 Ok(m) => m,
                 Err(_) => {
-                    // Send error frame and continue
                     let err = Message::Error(shared::messages::Error {
                         code: 0x07,
                         message: "Malformed frame".to_string(),
@@ -92,17 +115,13 @@ where
                 }
             };
 
-        // Dispatch to handler
         let response = handlers::handle(msg, &store).await;
 
-        // Send response
         if send_message(&mut stream, response).await.is_err() {
             break;
         }
     }
 }
-
-// Send a Message as a frame
 
 async fn send_message<S>(stream: &mut S, msg: Message) -> Result<(), std::io::Error>
 where
@@ -123,11 +142,9 @@ mod tests {
     async fn test_send_and_receive_message() {
         let (mut client, mut server) = duplex(1024);
 
-        // send a message on one end
         let msg = Message::RegisterOk;
         send_message(&mut client, msg).await.unwrap();
 
-        // receive and deserialize on the other end
         let (_, payload) = recv_frame(&mut server).await.unwrap();
         let (decoded, _): (Message, usize) =
             bincode::serde::decode_from_slice(&payload, bincode::config::standard()).unwrap();
@@ -139,7 +156,6 @@ mod tests {
     async fn test_malformed_payload_returns_error() {
         let (mut client, mut server) = duplex(1024);
 
-        // send garbage payload
         send_frame(&mut client, 0x01, b"not valid bincode")
             .await
             .unwrap();

@@ -1,7 +1,12 @@
 use ed25519_dalek::{Signer, SigningKey};
+use opaque_ke::{
+    ClientLogin, ClientLoginFinishParameters, ClientRegistration,
+    ClientRegistrationFinishParameters, CredentialResponse, RegistrationResponse,
+};
+use opaque_ke::rand::rngs::OsRng;
 use rustls::pki_types::ServerName;
 use shared::constants::*;
-use shared::crypto::*;
+use shared::crypto::{DefaultCipherSuite, compute_file_id, decrypt, derive_subkey, encrypt};
 use shared::frame::{recv_frame, send_frame};
 use shared::messages::*;
 use std::path::Path;
@@ -9,12 +14,11 @@ use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
 
-// TLS connection
+// ── TLS connection ────────────────────────────────────────────────────────────
 
 /// Establishes a TLS connection to the server.
 /// Uses a custom verifier that accepts self-signed certificates.
 pub async fn connect(addr: &str) -> Result<TlsStream<TcpStream>, String> {
-    // For development: accept self-signed certificates
     let tls_config = rustls::ClientConfig::builder()
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(AcceptAnyCert))
@@ -36,8 +40,6 @@ pub async fn connect(addr: &str) -> Result<TlsStream<TcpStream>, String> {
 
 use rustls::DigitallySignedStruct;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-/// Certificate verifier that accepts any certificate.
-/// ONLY for development: in production pin the server certificate.
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -82,7 +84,7 @@ impl ServerCertVerifier for AcceptAnyCert {
     }
 }
 
-// Send/Receive helpers
+// ── Send / Receive helpers ────────────────────────────────────────────────────
 
 async fn send_msg<S>(stream: &mut S, msg: Message) -> Result<(), String>
 where
@@ -107,7 +109,7 @@ where
     Ok(msg)
 }
 
-// Session state
+// ── Session state ─────────────────────────────────────────────────────────────
 
 pub struct Session {
     pub username: String,
@@ -118,28 +120,66 @@ pub struct Session {
     pub signing_key: SigningKey,
 }
 
-// Register
+// ── OPAQUE Registration ───────────────────────────────────────────────────────
 
-/// Derives keys from password and registers with the server.
-/// The server only receives: username, salt, public_key.
+/// Registers with the server using the OPAQUE protocol (2 round trips).
+///
+/// The password never leaves the client — only a blinded element and the
+/// final encrypted envelope are sent. The Ed25519 public key derived from
+/// `export_key` is also sent so the server can verify future file signatures.
 pub async fn register<S>(stream: &mut S, username: &str, password: &str) -> Result<(), String>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    // Derive master key from password
-    let salt = generate_salt();
-    let master_key = derive_master_key(password, &salt)?;
+    let mut rng = OsRng;
 
-    // Derive signing key from master key
-    let signing_seed = derive_subkey(&master_key, HKDF_SIGN_LABEL);
-    let signing_key = SigningKey::from_bytes(&signing_seed);
-    let public_key = signing_key.verifying_key().to_bytes().to_vec();
+    // Step 1: client blinds the password and sends RegistrationRequest.
+    let client_start =
+        ClientRegistration::<DefaultCipherSuite>::start(&mut rng, password.as_bytes())
+            .map_err(|e| format!("OPAQUE reg start: {e}"))?;
 
     send_msg(
         stream,
-        Message::Register(Register {
+        Message::OpaqueRegStart(OpaqueRegStart {
             username: username.to_string(),
-            salt: salt.to_vec(),
+            request: client_start.message.serialize().to_vec(),
+        }),
+    )
+    .await?;
+
+    // Step 2: receive RegistrationResponse from server.
+    let server_resp = match recv_msg(stream).await? {
+        Message::OpaqueRegResp(r) => r,
+        Message::Error(e) => return Err(e.message),
+        _ => return Err("Unexpected response to OpaqueRegStart".to_string()),
+    };
+
+    let reg_response =
+        RegistrationResponse::<DefaultCipherSuite>::deserialize(&server_resp.response)
+            .map_err(|e| format!("OPAQUE reg response deserialize: {e}"))?;
+
+    // Step 3: finalize on the client side and derive the signing key from export_key.
+    let client_finish = client_start
+        .state
+        .finish(
+            &mut rng,
+            password.as_bytes(),
+            reg_response,
+            ClientRegistrationFinishParameters::default(),
+        )
+        .map_err(|e| format!("OPAQUE reg finish: {e}"))?;
+
+    // Derive Ed25519 signing key from export_key (same derivation used at login).
+    let signing_seed = derive_subkey(client_finish.export_key.as_ref(), HKDF_SIGN_LABEL);
+    let signing_key = SigningKey::from_bytes(&signing_seed);
+    let public_key = signing_key.verifying_key().to_bytes().to_vec();
+
+    // Step 4: send RegistrationUpload + public key; receive acknowledgement.
+    send_msg(
+        stream,
+        Message::OpaqueRegFinish(OpaqueRegFinish {
+            username: username.to_string(),
+            record: client_finish.message.serialize().to_vec(),
             public_key,
         }),
     )
@@ -148,55 +188,67 @@ where
     match recv_msg(stream).await? {
         Message::RegisterOk => Ok(()),
         Message::Error(e) => Err(e.message),
-        _ => Err("Unexpected response".to_string()),
+        _ => Err("Unexpected response to OpaqueRegFinish".to_string()),
     }
 }
 
-// Login
+// ── OPAQUE Login ──────────────────────────────────────────────────────────────
 
-/// Performs challenge-response login, returns a Session with derived keys.
+/// Logs in using the OPAQUE protocol (2 round trips).
+///
+/// On success the `export_key` from OPAQUE replaces the old Argon2id
+/// `master_key`. All HKDF subkey derivation is unchanged.
+/// Wrong-password detection happens locally — the server never learns
+/// whether the attempt failed.
 pub async fn login<S>(stream: &mut S, username: &str, password: &str) -> Result<Session, String>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    // Step 1: request challenge
+    let mut rng = OsRng;
+
+    // Step 1: client sends CredentialRequest.
+    let client_start =
+        ClientLogin::<DefaultCipherSuite>::start(&mut rng, password.as_bytes())
+            .map_err(|e| format!("OPAQUE login start: {e}"))?;
+
     send_msg(
         stream,
-        Message::RequestChallenge(RequestChallenge {
+        Message::OpaqueLoginStart(OpaqueLoginStart {
             username: username.to_string(),
+            request: client_start.message.serialize().to_vec(),
         }),
     )
     .await?;
 
-    let (nonce, salt) = match recv_msg(stream).await? {
-        Message::Challenge(c) => (c.nonce, c.salt),
+    // Step 2: receive CredentialResponse from server.
+    let server_resp = match recv_msg(stream).await? {
+        Message::OpaqueLoginResp(r) => r,
         Message::Error(e) => return Err(e.message),
-        _ => return Err("Unexpected response".to_string()),
+        _ => return Err("Unexpected response to OpaqueLoginStart".to_string()),
     };
 
-    // Step 2: re-derive master key from password + server salt
-    let master_key = derive_master_key(password, &salt)?;
+    let cred_response =
+        CredentialResponse::<DefaultCipherSuite>::deserialize(&server_resp.response)
+            .map_err(|e| format!("OPAQUE cred response deserialize: {e}"))?;
 
-    // Derive all subkeys
-    let enc_key = derive_subkey(&master_key, HKDF_ENC_LABEL);
-    let mac_key = derive_subkey(&master_key, HKDF_MAC_LABEL);
-    let meta_key = derive_subkey(&master_key, HKDF_META_LABEL);
+    // Step 3: finalize locally. Returns Err immediately if the password is wrong —
+    // no network round trip needed to detect a bad password.
+    let client_finish = client_start
+        .state
+        .finish(
+            &mut rng,
+            password.as_bytes(),
+            cred_response,
+            ClientLoginFinishParameters::default(),
+        )
+        .map_err(|_| "Invalid password".to_string())?;
 
-    // Derive signing key — same seed as registration
-    let signing_seed = derive_subkey(&master_key, HKDF_SIGN_LABEL);
-    let signing_key = SigningKey::from_bytes(&signing_seed);
-
-    // Sign "login:" || nonce
-    let mut msg = b"login:".to_vec();
-    msg.extend_from_slice(&nonce);
-    let signature = signing_key.sign(&msg).to_bytes().to_vec();
-
-    // Step 3: send login
+    // Step 4: send CredentialFinalization; receive session token.
     send_msg(
         stream,
-        Message::Login(Login {
+        Message::OpaqueLoginFinish(OpaqueLoginFinish {
             username: username.to_string(),
-            signature,
+            finalization: client_finish.message.serialize().to_vec(),
         }),
     )
     .await?;
@@ -204,8 +256,16 @@ where
     let session_token = match recv_msg(stream).await? {
         Message::LoginOk(l) => l.session_token,
         Message::Error(e) => return Err(e.message),
-        _ => return Err("Unexpected response".to_string()),
+        _ => return Err("Unexpected response to OpaqueLoginFinish".to_string()),
     };
+
+    // Derive all subkeys from export_key (replaces the old Argon2id master_key).
+    let export_key = client_finish.export_key;
+    let enc_key = derive_subkey(export_key.as_ref(), HKDF_ENC_LABEL);
+    let mac_key = derive_subkey(export_key.as_ref(), HKDF_MAC_LABEL);
+    let meta_key = derive_subkey(export_key.as_ref(), HKDF_META_LABEL);
+    let signing_seed = derive_subkey(export_key.as_ref(), HKDF_SIGN_LABEL);
+    let signing_key = SigningKey::from_bytes(&signing_seed);
 
     Ok(Session {
         username: username.to_string(),
@@ -217,9 +277,9 @@ where
     })
 }
 
-// Upload
+// ── Upload ────────────────────────────────────────────────────────────────────
 
-/// Reads a file, encrypts it, signs it, sends it to the server.
+/// Reads a file, encrypts it, signs it, and sends it to the server.
 pub async fn upload<S>(
     stream: &mut S,
     session: &Session,
@@ -230,25 +290,19 @@ pub async fn upload<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    // Read plaintext
     let plaintext = std::fs::read(local_path).map_err(|e| e.to_string())?;
 
     if plaintext.len() > MAX_FRAME_SIZE - 1000 {
         return Err("File too large — maximum 16MB in v1".to_string());
     }
 
-    // Compute file_id = HMAC(mac_key, filename): hides filename from server
     let file_id = compute_file_id(&session.mac_key, remote_name);
-
-    // Derive per-file key and encrypt content
     let file_key = derive_subkey(&session.enc_key, &file_id);
     let ciphertext = encrypt(&file_key, &plaintext)?;
 
-    // Encrypt metadata — filename stays hidden from server
     let metadata = format!("{}:{}", remote_name, version);
     let encrypted_metadata = encrypt(&session.meta_key, metadata.as_bytes())?;
 
-    // Sign file_id || version || ciphertext
     let mut sign_msg = Vec::new();
     sign_msg.extend_from_slice(&file_id);
     sign_msg.extend_from_slice(&version.to_le_bytes());
@@ -275,9 +329,9 @@ where
     }
 }
 
-// Download
+// ── Download ──────────────────────────────────────────────────────────────────
 
-/// Downloads a file, verifies signature, decrypts, saves to disk.
+/// Downloads a file, verifies its signature, decrypts it, and saves it to disk.
 pub async fn download<S>(
     stream: &mut S,
     session: &Session,
@@ -304,7 +358,7 @@ where
         _ => return Err("Unexpected response".to_string()),
     };
 
-    // Verify signature: proves server didn't tamper with the file
+    // Verify signature — proves the server didn't tamper with the file.
     let mut sign_msg = Vec::new();
     sign_msg.extend_from_slice(&file_id);
     sign_msg.extend_from_slice(&resp.version.to_le_bytes());
@@ -320,17 +374,14 @@ where
         .verify(&sign_msg, &sig)
         .map_err(|_| "Signature verification failed — file may be tampered".to_string())?;
 
-    // Decrypt
     let file_key = derive_subkey(&session.enc_key, &file_id);
     let plaintext = decrypt(&file_key, &resp.ciphertext)?;
-
-    // Save to disk
     std::fs::write(local_path, &plaintext).map_err(|e| e.to_string())?;
 
     Ok(())
 }
 
-// List
+// ── List ──────────────────────────────────────────────────────────────────────
 
 /// Lists all files, decrypting metadata client-side.
 pub async fn list<S>(stream: &mut S, session: &Session) -> Result<Vec<(String, u64)>, String>
@@ -351,13 +402,11 @@ where
         _ => return Err("Unexpected response".to_string()),
     };
 
-    // Decrypt metadata for each entry client-side
     let mut files = Vec::new();
     for entry in entries {
         match decrypt(&session.meta_key, &entry.encrypted_metadata) {
             Ok(bytes) => {
                 let meta = String::from_utf8_lossy(&bytes).to_string();
-                // metadata format: "filename:version"
                 let name = meta.split(':').next().unwrap_or("unknown").to_string();
                 files.push((name, entry.version));
             }

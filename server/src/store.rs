@@ -1,12 +1,18 @@
+use opaque_ke::ServerSetup;
+use shared::crypto::DefaultCipherSuite;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 type FileStore = Arc<RwLock<HashMap<(String, Vec<u8>), FileRecord>>>;
 
-// Data records
+// ── Data records ──────────────────────────────────────────────────────────────
+
 #[derive(Clone)]
 pub struct UserRecord {
-    pub salt: Vec<u8>,
+    /// Serialized OPAQUE PasswordFile — replaces the old (salt, public_key) pair.
+    pub password_file: Vec<u8>,
+    /// Ed25519 public key derived from export_key via HKDF.
+    /// Used by the server to verify file-operation signatures.
     pub public_key: Vec<u8>,
 }
 
@@ -18,26 +24,47 @@ pub struct FileRecord {
     pub signature: Vec<u8>,
 }
 
+// ── Store ─────────────────────────────────────────────────────────────────────
+
 #[derive(Clone)]
 pub struct Store {
+    /// OPAQUE server setup (static keypair + OPRF seed). Loaded once at startup.
+    server_setup: Arc<ServerSetup<DefaultCipherSuite>>,
     users: Arc<RwLock<HashMap<String, UserRecord>>>,
     files: FileStore,
     sessions: Arc<RwLock<HashMap<Vec<u8>, String>>>,
-    challenges: Arc<RwLock<HashMap<String, Vec<u8>>>>,
+    /// Serialized ServerLogin state keyed by username.
+    /// Stored between OpaqueLoginStart and OpaqueLoginFinish for the same connection.
+    login_states: Arc<RwLock<HashMap<String, Vec<u8>>>>,
 }
 
 impl Store {
-    pub fn new() -> Self {
+    pub fn new(server_setup: ServerSetup<DefaultCipherSuite>) -> Self {
         Self {
+            server_setup: Arc::new(server_setup),
             users: Arc::new(RwLock::new(HashMap::new())),
             files: Arc::new(RwLock::new(HashMap::new())),
             sessions: Arc::new(RwLock::new(HashMap::new())),
-            challenges: Arc::new(RwLock::new(HashMap::new())),
+            login_states: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    // Users
-    /// Returns false if username already exists
+    /// Generates a fresh random ServerSetup and wraps it in a Store.
+    /// Useful for tests. Production code should use `Store::new` with a
+    /// persisted ServerSetup so registered passwords remain valid across restarts.
+    pub fn new_random() -> Self {
+        use opaque_ke::rand::rngs::OsRng;
+        let server_setup = ServerSetup::<DefaultCipherSuite>::new(&mut OsRng);
+        Self::new(server_setup)
+    }
+
+    pub fn server_setup(&self) -> &ServerSetup<DefaultCipherSuite> {
+        &self.server_setup
+    }
+
+    // ── Users ─────────────────────────────────────────────────────────────────
+
+    /// Returns false if the username is already registered.
     pub fn register_user(&self, username: String, record: UserRecord) -> bool {
         let mut users = self.users.write().unwrap();
         if users.contains_key(&username) {
@@ -51,23 +78,27 @@ impl Store {
         self.users.read().unwrap().get(username).cloned()
     }
 
-    // Challenges
-    /// Store a one-time login challenge nonce for a user
-    pub fn store_challenge(&self, username: String, nonce: Vec<u8>) {
-        self.challenges.write().unwrap().insert(username, nonce);
+    // ── OPAQUE login state ────────────────────────────────────────────────────
+
+    /// Persists the serialized ServerLogin intermediate state for a user.
+    /// Called after OpaqueLoginStart; consumed by OpaqueLoginFinish.
+    pub fn store_login_state(&self, username: String, state: Vec<u8>) {
+        self.login_states.write().unwrap().insert(username, state);
     }
 
-    /// Take consumes the challenge. Prevents replay attacks
-    pub fn take_challenge(&self, username: &str) -> Option<Vec<u8>> {
-        self.challenges.write().unwrap().remove(username)
+    /// Takes (removes) the serialized ServerLogin state for a user.
+    /// Prevents replay: a second OpaqueLoginFinish with the same username will fail.
+    pub fn take_login_state(&self, username: &str) -> Option<Vec<u8>> {
+        self.login_states.write().unwrap().remove(username)
     }
 
-    // Sessions
+    // ── Sessions ──────────────────────────────────────────────────────────────
+
     pub fn create_session(&self, token: Vec<u8>, username: String) {
         self.sessions.write().unwrap().insert(token, username);
     }
 
-    /// Returns the username for a valid session token
+    /// Returns the username for a valid session token.
     pub fn resolve_session(&self, token: &[u8]) -> Option<String> {
         self.sessions.read().unwrap().get(token).cloned()
     }
@@ -77,9 +108,9 @@ impl Store {
         self.sessions.write().unwrap().remove(token);
     }
 
-    // Files
+    // ── Files ─────────────────────────────────────────────────────────────────
 
-    /// Stores a file, enforcing monotonically increasing versions
+    /// Stores a file, enforcing monotonically increasing versions.
     pub fn put_file(
         &self,
         username: String,
@@ -116,7 +147,7 @@ impl Store {
             .is_some()
     }
 
-    /// Returns all file entries for a user
+    /// Returns all file entries for a user as (file_id, encrypted_metadata, version).
     pub fn list_files(&self, username: &str) -> Vec<(Vec<u8>, Vec<u8>, u64)> {
         self.files
             .read()
@@ -127,9 +158,10 @@ impl Store {
             .collect()
     }
 }
+
 impl Default for Store {
     fn default() -> Self {
-        Self::new()
+        Self::new_random()
     }
 }
 
@@ -138,7 +170,14 @@ mod tests {
     use super::*;
 
     fn make_store() -> Store {
-        Store::new()
+        Store::new_random()
+    }
+
+    fn dummy_user() -> UserRecord {
+        UserRecord {
+            password_file: vec![0u8; 64],
+            public_key: vec![1u8; 32],
+        }
     }
 
     fn dummy_file(version: u64) -> FileRecord {
@@ -153,31 +192,23 @@ mod tests {
     #[test]
     fn test_register_and_get_user() {
         let store = make_store();
-        let record = UserRecord {
-            salt: vec![0u8; 16],
-            public_key: vec![1u8; 32],
-        };
-        assert!(store.register_user("alice".to_string(), record));
+        assert!(store.register_user("alice".to_string(), dummy_user()));
         assert!(store.get_user("alice").is_some());
     }
 
     #[test]
     fn test_duplicate_registration_fails() {
         let store = make_store();
-        let record = UserRecord {
-            salt: vec![0u8; 16],
-            public_key: vec![1u8; 32],
-        };
-        store.register_user("alice".to_string(), record.clone());
-        assert!(!store.register_user("alice".to_string(), record));
+        store.register_user("alice".to_string(), dummy_user());
+        assert!(!store.register_user("alice".to_string(), dummy_user()));
     }
 
     #[test]
-    fn test_challenge_consumed_after_use() {
+    fn test_login_state_consumed_after_use() {
         let store = make_store();
-        store.store_challenge("alice".to_string(), vec![1, 2, 3]);
-        assert!(store.take_challenge("alice").is_some()); // first use works
-        assert!(store.take_challenge("alice").is_none()); // second use fails
+        store.store_login_state("alice".to_string(), vec![1, 2, 3]);
+        assert!(store.take_login_state("alice").is_some());
+        assert!(store.take_login_state("alice").is_none()); // second take fails
     }
 
     #[test]

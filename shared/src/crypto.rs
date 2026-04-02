@@ -3,39 +3,29 @@ use aes_gcm::{
     Aes256Gcm, Key, Nonce,
     aead::{Aead, AeadCore, KeyInit, OsRng},
 };
-use argon2::password_hash::rand_core::RngCore;
-use argon2::{Argon2, Params, Version};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
-use sha2::Sha256;
+use opaque_ke::CipherSuite;
+use sha2::{Sha256, Sha512};
 
-/// Generates 16 random bytes for use as Argon2 salt
-pub fn generate_salt() -> [u8; SALT_LEN] {
-    let mut salt = [0u8; SALT_LEN];
-    OsRng.fill_bytes(&mut salt);
-    salt
+// ── OPAQUE cipher suite ───────────────────────────────────────────────────────
+
+/// The OPAQUE cipher suite used throughout the system:
+///   OPRF  – Ristretto255
+///   KE    – Triple-DH over Ristretto255 with SHA-512
+///   KSF   – Argon2id (via opaque-ke's built-in KSF)
+pub struct DefaultCipherSuite;
+
+impl CipherSuite for DefaultCipherSuite {
+    type OprfCs = opaque_ke::Ristretto255;
+    type KeyExchange = opaque_ke::TripleDh<opaque_ke::Ristretto255, Sha512>;
+    type Ksf = opaque_ke::argon2::Argon2<'static>;
 }
 
-/// Derives a 32-byte master key from password + salt using Argon2id
-pub fn derive_master_key(password: &str, salt: &[u8]) -> Result<[u8; KEY_LEN], String> {
-    let params = Params::new(
-        ARGON2_MEMORY_KIB,
-        ARGON2_ITERATIONS,
-        ARGON2_PARALLELISM,
-        Some(KEY_LEN),
-    )
-    .map_err(|e| e.to_string())?;
-    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
-    let mut key = [0u8; KEY_LEN];
-    argon2
-        .hash_password_into(password.as_bytes(), salt, &mut key)
-        .map_err(|e| e.to_string())?;
-    Ok(key)
-}
-
-// Subkey derivation
+// ── HKDF subkey derivation ────────────────────────────────────────────────────
 
 /// Derives a 32-byte subkey from master_key using HKDF-SHA256.
+/// master_key is the 64-byte export_key from OPAQUE.
 pub fn derive_subkey(master_key: &[u8], label: &[u8]) -> [u8; KEY_LEN] {
     let hk = Hkdf::<Sha256>::new(None, master_key);
     let mut okm = [0u8; KEY_LEN];
@@ -43,10 +33,10 @@ pub fn derive_subkey(master_key: &[u8], label: &[u8]) -> [u8; KEY_LEN] {
     okm
 }
 
-// File ID
+// ── File ID ───────────────────────────────────────────────────────────────────
 
-/// Computes a deterministic file ID: HMAC-SHA256(mac_key, filename)
-/// Server sees only encrypted filename
+/// Computes a deterministic file ID: HMAC-SHA256(mac_key, filename).
+/// The server sees only the opaque ID, never the plaintext filename.
 pub fn compute_file_id(mac_key: &[u8], filename: &str) -> Vec<u8> {
     let mut mac =
         <Hmac<Sha256> as Mac>::new_from_slice(mac_key).expect("HMAC accepts any key size");
@@ -54,24 +44,21 @@ pub fn compute_file_id(mac_key: &[u8], filename: &str) -> Vec<u8> {
     mac.finalize().into_bytes().to_vec()
 }
 
-// Encrypt
+// ── AES-256-GCM encryption ────────────────────────────────────────────────────
 
-/// Encrypts plaintext with AES-256-GCM
-/// Returns: nonce (12 bytes) || ciphertext || tag (16 bytes)
+/// Encrypts plaintext with AES-256-GCM.
+/// Returns: nonce (12 bytes) || ciphertext || tag (16 bytes).
 pub fn encrypt(key: &[u8; KEY_LEN], plaintext: &[u8]) -> Result<Vec<u8>, String> {
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     let ciphertext = cipher
         .encrypt(&nonce, plaintext)
         .map_err(|e| e.to_string())?;
-    // prepend nonce so decrypt() knows what to use
     let mut output = Vec::new();
     output.extend_from_slice(&nonce);
     output.extend_from_slice(&ciphertext);
     Ok(output)
 }
-
-// Decrypt
 
 /// Decrypts a blob produced by encrypt().
 /// Splits off the first 12 bytes as nonce, decrypts the rest.
@@ -94,7 +81,7 @@ mod tests {
 
     #[test]
     fn test_encrypt_decrypt_roundtrip() {
-        let key = [0u8; 32]; // dummy key, all zeros
+        let key = [0u8; 32];
         let plaintext = b"hello secret world";
 
         let ciphertext = encrypt(&key, plaintext).unwrap();
@@ -105,7 +92,7 @@ mod tests {
     #[test]
     fn test_wrong_key_fails() {
         let key1 = [0u8; 32];
-        let key2 = [1u8; 32]; // different key
+        let key2 = [1u8; 32];
         let plaintext = b"secret";
 
         let ciphertext = encrypt(&key1, plaintext).unwrap();
@@ -117,13 +104,13 @@ mod tests {
     fn test_tampered_ciphertext_fails() {
         let key = [0u8; 32];
         let mut ciphertext = encrypt(&key, b"secret").unwrap();
-        ciphertext[15] ^= 0xFF; // flip some bits
+        ciphertext[15] ^= 0xFF;
         assert!(decrypt(&key, &ciphertext).is_err());
     }
 
     #[test]
     fn test_subkey_domain_separation() {
-        let master = [0u8; 32];
+        let master = [0u8; 64]; // export_key is 64 bytes
         let enc_key = derive_subkey(&master, HKDF_ENC_LABEL);
         let mac_key = derive_subkey(&master, HKDF_MAC_LABEL);
         let meta_key = derive_subkey(&master, HKDF_META_LABEL);
